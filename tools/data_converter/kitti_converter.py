@@ -48,7 +48,19 @@ def _calculate_num_points_in_gt(data_path,
                                 infos,
                                 relative_path,
                                 remove_outside=True,
-                                num_features=4):
+                                num_features=4,
+                                use_ceph=True):
+    if use_ceph:
+        file_client_args = dict(
+            backend='petrel',
+            path_mapping=dict({
+                './data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/',
+                'data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/'
+            }))
+        file_client = mmcv.FileClient(**file_client_args)
+
     for info in mmcv.track_iter_progress(infos):
         pc_info = info['point_cloud']
         image_info = info['image']
@@ -57,8 +69,14 @@ def _calculate_num_points_in_gt(data_path,
             v_path = str(Path(data_path) / pc_info['velodyne_path'])
         else:
             v_path = pc_info['velodyne_path']
-        points_v = np.fromfile(
-            v_path, dtype=np.float32, count=-1).reshape([-1, num_features])
+        if use_ceph:
+            pts_bytes = file_client.get(v_path)
+            points_v = np.frombuffer(
+                pts_bytes, dtype=np.float32,
+                count=-1).reshape([-1, num_features])
+        else:
+            points_v = np.fromfile(
+                v_path, dtype=np.float32, count=-1).reshape([-1, num_features])
         rect = calib['R0_rect']
         Trv2c = calib['Tr_velo_to_cam']
         P2 = calib['P2']
@@ -347,7 +365,7 @@ def create_reduced_point_cloud(data_path,
             data_path, test_info_path, save_path, back=True)
 
 
-def export_2d_annotation(root_path, info_path, mono3d=True):
+def export_2d_annotation(root_path, info_path, mono3d=True, use_ceph=True):
     """Export 2d annotation from the info file and raw data.
 
     Args:
@@ -364,12 +382,27 @@ def export_2d_annotation(root_path, info_path, mono3d=True):
     ]
     coco_ann_id = 0
     coco_2d_dict = dict(annotations=[], images=[], categories=cat2Ids)
+    if use_ceph:
+        file_client_args = dict(
+            backend='petrel',
+            path_mapping=dict({
+                './data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/',
+                'data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/'
+            }))
+        file_client = mmcv.FileClient(**file_client_args)
+
     from os import path as osp
     for info in mmcv.track_iter_progress(kitti_infos):
         coco_infos = get_2d_boxes(info, occluded=[0, 1, 2, 3], mono3d=mono3d)
-        (height, width,
-         _) = mmcv.imread(osp.join(root_path,
-                                   info['image']['image_path'])).shape
+        if use_ceph:
+            img_bytes = file_client.get(
+                osp.join(root_path, info['image']['image_path']))
+            img = mmcv.imfrombytes(img_bytes, flag='color')
+        else:
+            img = mmcv.imread(osp.join(root_path, info['image']['image_path']))
+        (height, width, _) = img.shape
         coco_2d_dict['images'].append(
             dict(
                 file_name=info['image']['image_path'],

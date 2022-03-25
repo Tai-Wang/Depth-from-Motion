@@ -22,7 +22,7 @@ def get_kitti_info_path(idx,
                         file_tail='.png',
                         training=True,
                         relative_path=True,
-                        exist_check=True,
+                        exist_check=False,
                         use_prefix_id=False):
     img_idx_str = get_image_index_str(idx, use_prefix_id)
     img_idx_str += file_tail
@@ -39,11 +39,112 @@ def get_kitti_info_path(idx,
         return str(prefix / file_path)
 
 
+def get_mapping_lists(root_path):
+    import re
+    rand_file = str(root_path / 'devkit/mapping/train_rand.txt')
+    mapping_file = str(root_path / 'devkit/mapping/train_mapping.txt')
+    rand_list = []
+    mapping_list = []
+    # read the rand list
+    text_file = open(rand_file, 'r')
+    for line in text_file:
+        parsed = re.findall('(\d+)', line)  # noqa: W605
+        for p in parsed:
+            rand_list.append(int(p))
+    text_file.close()
+    # read the mapping file
+    text_file = open(mapping_file, 'r')
+    for line in text_file:
+        # 2011_09_26 2011_09_26_drive_0005_sync 0000000109
+        parsed = re.search('(\S+)\s+(\S+)\s+(\S+)', line)  # noqa: W605
+        if parsed is not None:
+            seq = str(parsed[2])
+            id = str(parsed[3])
+            mapping_list.append([seq, id])
+    text_file.close()
+    return rand_list, mapping_list
+
+
+def get_pose(pose_path):
+    with open(pose_path, 'r') as f:
+        lines = f.readlines()
+    poses = []
+    for line in lines:
+        poses.append(
+            np.array([float(info) for info in line.split(' ')]).reshape([3,
+                                                                         4]))
+    return poses
+
+
+def get_sweeps_info(idx,
+                    root_path,
+                    training,
+                    rand_list,
+                    mapping_list,
+                    frame_range=3,
+                    use_ceph=True):
+    sweeps = []
+    cur_pose = np.eye(4)
+    if not training:  # TODO: also support DfM on test set
+        return sweeps, cur_pose
+    # Note: rand_list[idx] returns the line number, so need -1
+    seq, raw_id = mapping_list[rand_list[idx] - 1]  # date + folder + sample_id
+    # get sample_id
+    # judge whether there is pose data
+    pose_file = str(Path(root_path) / 'raw' / seq / 'pose.txt')
+    if not osp.exists(pose_file):
+        return sweeps
+    poses = get_pose(pose_file)
+    if use_ceph:
+        file_client_args = dict(
+            backend='petrel',
+            path_mapping=dict({
+                './data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/',
+                'data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/'
+            }))
+        file_client = mmcv.FileClient(**file_client_args)
+    # if not, return sweeps = []
+    # else, return sweeps = {['data_path':, 'cam2global':]}
+    # cam2global here actually refers to ego2global
+    # because there is no extrinsic annotation 'cam2ego' on KITTI
+    # get consecutive frames
+    if isinstance(frame_range, tuple) or isinstance(frame_range, list):
+        raise NotImplementedError
+    else:
+        assert frame_range > 0
+        cur_pose = np.eye(4)
+        pose = poses[int(raw_id)]
+        cur_pose[:pose.shape[0], :pose.shape[1]] = pose
+        # refer to previous [frame_range] frames
+        for frame_idx in range(1, frame_range + 1):
+            ref_file_name = 'training/prev_2/{:06d}_{:02d}.png'.format(
+                idx, frame_idx)
+            # Example: if raw_id = 0000000528
+            # the sample corresponds to 0000000528.png (529-th sample)
+            # pose_idx=528, previous 1st frame corresponds to pose_idx=527
+            ref_raw_idx = int(raw_id) - frame_idx
+            if use_ceph:
+                is_exist = file_client.exists(
+                    osp.join(root_path, ref_file_name))
+            else:
+                is_exist = osp.exists(osp.join(root_path, ref_file_name))
+            if ref_raw_idx < 0 or not is_exist:
+                continue
+            pad_pose = np.eye(4)
+            pose = poses[ref_raw_idx]
+            pad_pose[:pose.shape[0], :pose.shape[1]] = pose
+            sweep = {'data_path': ref_file_name, 'cam2global': pad_pose}
+            sweeps.append(sweep)
+    return sweeps, cur_pose
+
+
 def get_image_path(idx,
                    prefix,
                    training=True,
                    relative_path=True,
-                   exist_check=True,
+                   exist_check=False,
                    info_type='image_2',
                    use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, info_type, '.png', training,
@@ -54,7 +155,7 @@ def get_label_path(idx,
                    prefix,
                    training=True,
                    relative_path=True,
-                   exist_check=True,
+                   exist_check=False,
                    info_type='label_2',
                    use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, info_type, '.txt', training,
@@ -65,7 +166,7 @@ def get_plane_path(idx,
                    prefix,
                    training=True,
                    relative_path=True,
-                   exist_check=True,
+                   exist_check=False,
                    info_type='planes',
                    use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, info_type, '.txt', training,
@@ -76,7 +177,7 @@ def get_velodyne_path(idx,
                       prefix,
                       training=True,
                       relative_path=True,
-                      exist_check=True,
+                      exist_check=False,
                       use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, 'velodyne', '.bin', training,
                                relative_path, exist_check, use_prefix_id)
@@ -86,7 +187,7 @@ def get_calib_path(idx,
                    prefix,
                    training=True,
                    relative_path=True,
-                   exist_check=True,
+                   exist_check=False,
                    use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, 'calib', '.txt', training,
                                relative_path, exist_check, use_prefix_id)
@@ -96,7 +197,7 @@ def get_pose_path(idx,
                   prefix,
                   training=True,
                   relative_path=True,
-                  exist_check=True,
+                  exist_check=False,
                   use_prefix_id=False):
     return get_kitti_info_path(idx, prefix, 'pose', '.txt', training,
                                relative_path, exist_check, use_prefix_id)
@@ -161,7 +262,8 @@ def get_kitti_image_info(path,
                          extend_matrix=True,
                          num_worker=8,
                          relative_path=True,
-                         with_imageshape=True):
+                         with_imageshape=True,
+                         use_ceph=True):
     """
     KITTI annotation format version 2:
     {
@@ -193,6 +295,17 @@ def get_kitti_image_info(path,
     root_path = Path(path)
     if not isinstance(image_ids, list):
         image_ids = list(range(image_ids))
+    rand_list, mapping_list = get_mapping_lists(root_path)
+    if use_ceph:
+        file_client_args = dict(
+            backend='petrel',
+            path_mapping=dict({
+                './data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/',
+                'data/kitti/':
+                's3://openmmlab/datasets/detection3d/kitti/'
+            }))
+        file_client = mmcv.FileClient(**file_client_args)
 
     def map_func(idx):
         info = {}
@@ -206,12 +319,18 @@ def get_kitti_image_info(path,
                 idx, path, training, relative_path)
         image_info['image_path'] = get_image_path(idx, path, training,
                                                   relative_path)
+        image_info['sweeps'], image_info['cam2global'] = get_sweeps_info(
+            idx, path, training, rand_list, mapping_list)
         if with_imageshape:
             img_path = image_info['image_path']
             if relative_path:
                 img_path = str(root_path / img_path)
-            image_info['image_shape'] = np.array(
-                io.imread(img_path).shape[:2], dtype=np.int32)
+            if use_ceph:
+                img_bytes = file_client.get(img_path)
+                img = mmcv.imfrombytes(img_bytes, flag='color')
+            else:
+                img = io.imread(img_path)
+            image_info['image_shape'] = np.array(img.shape[:2], dtype=np.int32)
         if label_info:
             label_path = get_label_path(idx, path, training, relative_path)
             if relative_path:

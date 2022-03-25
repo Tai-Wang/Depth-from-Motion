@@ -1,6 +1,8 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import copy
 import mmcv
 import numpy as np
+from pyquaternion import Quaternion
 
 from mmdet3d.core.points import BasePoints, get_points_type
 from mmdet.datasets.builder import PIPELINES
@@ -69,6 +71,212 @@ class LoadMultiViewImageFromFiles(object):
         repr_str = self.__class__.__name__
         repr_str += f'(to_float32={self.to_float32}, '
         repr_str += f"color_type='{self.color_type}')"
+        return repr_str
+
+
+@PIPELINES.register_module()
+class VideoPipeline(object):
+    """Load and transform multi-frame images.
+    Args:
+        transforms (list[dict]): Transforms to apply for each image.
+            The list of transforms for MultiViewPipeline and
+            MultiScaleFlipAug differs. Here LoadImageFromFile is
+            required as the first transform. Other transforms as usual
+            can include Normalize, Pad, Resize etc.
+        num_ref_imgs (int): Number of referenced images. Defaults to -1.
+    """
+
+    def __init__(self,
+                 transforms,
+                 num_ref_imgs=-1,
+                 meta_keys=('filename', 'ori_shape', 'img_shape', 'lidar2img',
+                            'pad_shape', 'scale_factor', 'flip',
+                            'cam_intrinsic', 'pcd_horizontal_flip',
+                            'pcd_vertical_flip', 'box_mode_3d', 'box_type_3d',
+                            'img_norm_cfg', 'rect', 'Trv2c', 'P2', 'pcd_trans',
+                            'sample_idx', 'pcd_scale_factor', 'pcd_rotation',
+                            'pts_filename', 'transformation_3d_flow',
+                            'cam2global')):
+        self.transforms = Compose(transforms)
+        self.num_ref_imgs = num_ref_imgs
+        self.meta_keys = meta_keys
+
+    def __call__(self, results):
+        """Call function to load multi-frame image from files.
+        Args:
+            results (dict): Result dict containing multi-frame image filenames.
+        Returns:
+            dict: The result dict containing the multi-frame image data.
+                Added keys are deducted from all pipelines from
+                self.transforms.
+        """
+        # To deprecate: assert len(results['img_info']['sweeps'])
+
+        # sample self.num_ref_imgs from all images
+        if self.num_ref_imgs > 0 and len(results['img_info']['sweeps']):
+            ids = np.arange(len(results['img_info']['sweeps']))
+            replace = True if self.num_ref_imgs > len(ids) else False
+            ids = np.random.choice(ids, self.num_ref_imgs, replace=replace)
+            # ids = ids[:self.num_ref_imgs]
+        else:
+            ids = np.arange(0)
+
+        # make a backup for original results
+        org_results = copy.deepcopy(results)
+
+        base_results = copy.deepcopy(results)
+        # extract the transformation matrix from camera to global
+        if 'cam2global' not in base_results['img_info']:  # nuScenes
+            cam2ego_rot = np.array(
+                Quaternion(base_results['img_info']
+                           ['cam2ego_rotation']).transformation_matrix)
+            cam2ego = cam2ego_rot.copy()
+            cam2ego[0:3, 3] += np.array(
+                base_results['img_info']['cam2ego_translation']).T
+            ego2global_rot = np.array(
+                Quaternion(base_results['img_info']
+                           ['ego2global_rotation']).transformation_matrix)
+            ego2global = ego2global_rot.copy()
+            ego2global[0:3, 3] += np.array(
+                base_results['img_info']['ego2global_translation']).T
+            cam2global = np.dot(ego2global, cam2ego).astype(np.float32)
+            base_results['cam2global'] = cam2global
+        else:
+            base_results['cam2global'] = base_results['img_info']['cam2global']
+
+        base_results = self.transforms(base_results)
+        multi_imgs = [base_results['img']]
+        # collect image metas
+        img_metas = {}
+        for key in self.meta_keys:
+            if key in base_results:
+                img_metas[key] = base_results[key]
+        sweep_img_metas = [img_metas]
+
+        # apply self.transforms to referenced images
+        for i in ids.tolist():
+            ref_results = copy.deepcopy(org_results)
+            ref_results['img_info']['filename'] = \
+                results['img_info']['sweeps'][i]['data_path']
+            # set flip value to make flip transformation consistent
+            if 'flip' in base_results.keys():
+                ref_results['flip'] = base_results['flip']
+                ref_results['flip_direction'] = base_results['flip_direction']
+            # set scale value to make resize consistent
+            # use scale instead of img_scale = img_shape[:2]
+            # to avoid some corner cases (inconsistent size with
+            # base_results caused by the keep_ratio choice)
+            if 'scale' in base_results.keys():
+                ref_results['scale'] = base_results['scale']
+            # extract the transformation matrix from camera to global
+            if 'cam2global' not in ref_results['img_info']['sweeps'][i]:
+                cam2ego_rot = np.array(
+                    Quaternion(ref_results['img_info']['sweeps'][i]
+                               ['sensor2ego_rotation']).transformation_matrix)
+                cam2ego = cam2ego_rot.copy()
+                cam2ego[0:3, 3] += np.array(ref_results['img_info']['sweeps']
+                                            [i]['sensor2ego_translation']).T
+                ego2global_rot = np.array(
+                    Quaternion(ref_results['img_info']['sweeps'][i]
+                               ['ego2global_rotation']).transformation_matrix)
+                ego2global = ego2global_rot.copy()
+                ego2global[0:3,
+                           3] += np.array(ref_results['img_info']['sweeps'][i]
+                                          ['ego2global_translation']).T
+                cam2global = np.dot(ego2global, cam2ego).astype(np.float32)
+                ref_results['cam2global'] = cam2global
+            else:
+                ref_results['cam2global'] = \
+                    ref_results['img_info']['sweeps'][i]['cam2global']
+
+            ref_results = self.transforms(ref_results)
+            if 'flip' in ref_results.keys():
+                assert ref_results['flip'] == base_results['flip']
+            if 'pad_shape' in ref_results.keys():
+                assert ref_results['pad_shape'] == base_results['pad_shape']
+            multi_imgs.append(ref_results['img'])
+            # collect image metas
+            img_metas = {}
+            for key in self.meta_keys:
+                if key in ref_results:
+                    img_metas[key] = ref_results[key]
+            sweep_img_metas.append(img_metas)
+
+        base_results['img'] = multi_imgs
+        base_results['sweep_img_metas'] = sweep_img_metas
+
+        # copy the contents in base_results to results
+        for key in base_results.keys():
+            results[key] = base_results[key]
+        return results
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(transforms={self.transforms}, '
+        repr_str += f'num_ref_imgs={self.num_ref_imgs})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class DepthPipeline(LoadImageFromFileMono3D):
+    """Load and transform depth maps.
+    Args:
+        transforms (list[dict]): Transforms to apply for the depth map.
+            The list of transforms for MultiViewPipeline and
+            MultiScaleFlipAug differs. Here LoadImageFromFile is
+            required as the first transform. Other transforms as usual
+            can include Normalize, Pad, Resize etc.
+    """
+
+    def __init__(self,
+                 transforms=[],
+                 file_client_args=dict(backend='disk'),
+                 **kwargs):
+        super().__init__(file_client_args=file_client_args, **kwargs)
+        self.transforms = Compose(transforms)
+
+    def __call__(self, results):
+        """Call function to load depth maps from files.
+        Args:
+            results (dict): Result dict containing multi-frame image filenames.
+        Returns:
+            dict: The result dict containing the multi-frame image data.
+                Added keys are deducted from all pipelines from
+                self.transforms.
+        """
+        super().__call__(results)
+        # apply self.transforms to the depth map
+        img_filename = results['filename']
+        if 'samples' in img_filename:  # nuscenes
+            depth_filename = img_filename.replace('samples', 'depths').replace(
+                'jpg', 'png')
+            depth_map = np.load(depth_filename)['velodyne_depth']
+        else:  # KITTI
+            depth_filename = img_filename.replace('image_2', 'depth_2')
+            depth_bytes = self.file_client.get(depth_filename)
+            depth_map = mmcv.imfrombytes(depth_bytes, flag='grayscale')
+            """
+            # only use the part smaller than (375, 1242)
+            if depth_map.shape[0] > 375:
+                depth_map = depth_map[:375, :]
+            if depth_map.shape[1] > 1242:
+                depth_map = depth_map[:, :1242]
+            """
+        results['depth_map'] = depth_map.astype(np.float32)
+        results['seg_fields'].append('depth_map')
+
+        results = self.transforms(results)
+        # avoid the transforms out of this pipeline also applying to depth_map
+        # TODO: consider categorizing depth_map into seg_fields
+        # results['img_fields'].remove('depth_map')
+
+        return results
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(transforms={self.transforms}, '
         return repr_str
 
 
