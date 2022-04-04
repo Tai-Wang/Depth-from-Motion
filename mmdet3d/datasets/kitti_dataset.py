@@ -122,15 +122,30 @@ class KittiDataset(Custom3DDataset):
         rect = info['calib']['R0_rect'].astype(np.float32)
         Trv2c = info['calib']['Tr_velo_to_cam'].astype(np.float32)
         P2 = info['calib']['P2'].astype(np.float32)
+        cam2img = P2
         lidar2img = P2 @ rect @ Trv2c
+        lidar2cam = rect @ Trv2c  # TODO: check rect
+        pose = info['image']['cam2global']
+        sweeps_info = info['image']['sweeps']
+        sweeps = []  # avoid modify the original sweeps_info
+        for sweep_info in sweeps_info:
+            sweep = {}
+            for key in sweep_info:
+                sweep[key] = sweep_info[key]
+            sweep['data_path'] = os.path.join(self.data_root,
+                                              sweep_info['data_path'])
+            sweeps.append(sweep)
 
         pts_filename = self._get_pts_filename(sample_idx)
         input_dict = dict(
             sample_idx=sample_idx,
             pts_filename=pts_filename,
             img_prefix=None,
-            img_info=dict(filename=img_filename),
-            lidar2img=lidar2img)
+            img_info=dict(
+                filename=img_filename, cam2global=pose, sweeps=sweeps),
+            cam2img=cam2img,
+            lidar2img=lidar2img,
+            lidar2cam=lidar2cam)
 
         if not self.test_mode:
             annos = self.get_ann_info(index)
@@ -490,7 +505,6 @@ class KittiDataset(Custom3DDataset):
                                 loc[idx][2], anno['rotation_y'][idx],
                                 anno['score'][idx]),
                             file=f)
-
             annos[-1]['sample_idx'] = np.array(
                 [sample_idx] * len(annos[-1]['score']), dtype=np.int64)
 
@@ -661,7 +675,12 @@ class KittiDataset(Custom3DDataset):
         img_shape = info['image']['image_shape']
         P2 = box_preds.tensor.new_tensor(P2)
 
-        box_preds_camera = box_preds.convert_to(Box3DMode.CAM, rect @ Trv2c)
+        # support pseudo-lidar mode for vision-based BEV methods
+        if box_dict.get('pseudo_lidar', False):
+            box_preds_camera = box_preds.convert_to(Box3DMode.CAM, None)
+        else:
+            box_preds_camera = box_preds.convert_to(Box3DMode.CAM,
+                                                    rect @ Trv2c)
 
         box_corners = box_preds_camera.corners
         box_corners_in_image = points_cam2img(box_corners, P2)

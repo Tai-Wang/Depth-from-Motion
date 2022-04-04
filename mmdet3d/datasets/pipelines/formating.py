@@ -139,7 +139,8 @@ class Collect3D(object):
                    'box_type_3d', 'img_norm_cfg', 'pcd_trans', 'sample_idx',
                    'pcd_scale_factor', 'pcd_rotation', 'pcd_rotation_angle',
                    'pts_filename', 'transformation_3d_flow', 'trans_mat',
-                   'affine_aug')):
+                   'affine_aug', 'sweep_img_metas', 'ori_cam2img',
+                   'cam2global', 'crop_offset')):
         self.keys = keys
         self.meta_keys = meta_keys
 

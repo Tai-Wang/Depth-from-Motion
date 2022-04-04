@@ -1,12 +1,14 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import copy
+
 import mmcv
 import numpy as np
 from pyquaternion import Quaternion
 
 from mmdet3d.core.points import BasePoints, get_points_type
 from mmdet.datasets.builder import PIPELINES
-from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
+from mmdet.datasets.pipelines import (Compose, LoadAnnotations,
+                                      LoadImageFromFile)
 
 
 @PIPELINES.register_module()
@@ -77,6 +79,7 @@ class LoadMultiViewImageFromFiles(object):
 @PIPELINES.register_module()
 class VideoPipeline(object):
     """Load and transform multi-frame images.
+
     Args:
         transforms (list[dict]): Transforms to apply for each image.
             The list of transforms for MultiViewPipeline and
@@ -89,6 +92,7 @@ class VideoPipeline(object):
     def __init__(self,
                  transforms,
                  num_ref_imgs=-1,
+                 random=True,
                  meta_keys=('filename', 'ori_shape', 'img_shape', 'lidar2img',
                             'pad_shape', 'scale_factor', 'flip',
                             'cam_intrinsic', 'pcd_horizontal_flip',
@@ -96,13 +100,15 @@ class VideoPipeline(object):
                             'img_norm_cfg', 'rect', 'Trv2c', 'P2', 'pcd_trans',
                             'sample_idx', 'pcd_scale_factor', 'pcd_rotation',
                             'pts_filename', 'transformation_3d_flow',
-                            'cam2global')):
+                            'cam2global', 'ori_cam2img')):
         self.transforms = Compose(transforms)
         self.num_ref_imgs = num_ref_imgs
+        self.random = random
         self.meta_keys = meta_keys
 
     def __call__(self, results):
         """Call function to load multi-frame image from files.
+
         Args:
             results (dict): Result dict containing multi-frame image filenames.
         Returns:
@@ -115,9 +121,11 @@ class VideoPipeline(object):
         # sample self.num_ref_imgs from all images
         if self.num_ref_imgs > 0 and len(results['img_info']['sweeps']):
             ids = np.arange(len(results['img_info']['sweeps']))
-            replace = True if self.num_ref_imgs > len(ids) else False
-            ids = np.random.choice(ids, self.num_ref_imgs, replace=replace)
-            # ids = ids[:self.num_ref_imgs]
+            if self.random:
+                replace = True if self.num_ref_imgs > len(ids) else False
+                ids = np.random.choice(ids, self.num_ref_imgs, replace=replace)
+            else:
+                ids = ids[-self.num_ref_imgs:]
         else:
             ids = np.arange(0)
 
@@ -146,13 +154,15 @@ class VideoPipeline(object):
 
         base_results = self.transforms(base_results)
         multi_imgs = [base_results['img']]
+        """
         # collect image metas
         img_metas = {}
         for key in self.meta_keys:
             if key in base_results:
                 img_metas[key] = base_results[key]
-        sweep_img_metas = [img_metas]
-
+        """
+        # only save prev_img_metas in sweep_img_metas
+        sweep_img_metas = []
         # apply self.transforms to referenced images
         for i in ids.tolist():
             ref_results = copy.deepcopy(org_results)
@@ -219,8 +229,36 @@ class VideoPipeline(object):
 
 
 @PIPELINES.register_module()
+class LoadImageFromFileMono3D(LoadImageFromFile):
+    """Load an image from file in monocular 3D object detection. Compared to 2D
+    detection, additional camera parameters need to be loaded.
+
+    Args:
+        kwargs (dict): Arguments are the same as those in
+            :class:`LoadImageFromFile`.
+    """
+
+    def __call__(self, results):
+        """Call functions to load image and get image meta information.
+
+        Args:
+            results (dict): Result dict from :obj:`mmdet.CustomDataset`.
+
+        Returns:
+            dict: The dict contains loaded image and meta information.
+        """
+        super().__call__(results)
+        if 'cam2img' not in results.keys():  # Mono3D dataset class
+            results['cam2img'] = results['img_info']['cam_intrinsic']
+        # save the original cam2img before augmentation
+        results['ori_cam2img'] = copy.deepcopy(results['cam2img'])
+        return results
+
+
+@PIPELINES.register_module()
 class DepthPipeline(LoadImageFromFileMono3D):
     """Load and transform depth maps.
+
     Args:
         transforms (list[dict]): Transforms to apply for the depth map.
             The list of transforms for MultiViewPipeline and
@@ -238,6 +276,7 @@ class DepthPipeline(LoadImageFromFileMono3D):
 
     def __call__(self, results):
         """Call function to load depth maps from files.
+
         Args:
             results (dict): Result dict containing multi-frame image filenames.
         Returns:
@@ -278,30 +317,6 @@ class DepthPipeline(LoadImageFromFileMono3D):
         repr_str = self.__class__.__name__
         repr_str += f'(transforms={self.transforms}, '
         return repr_str
-
-
-@PIPELINES.register_module()
-class LoadImageFromFileMono3D(LoadImageFromFile):
-    """Load an image from file in monocular 3D object detection. Compared to 2D
-    detection, additional camera parameters need to be loaded.
-
-    Args:
-        kwargs (dict): Arguments are the same as those in
-            :class:`LoadImageFromFile`.
-    """
-
-    def __call__(self, results):
-        """Call functions to load image and get image meta information.
-
-        Args:
-            results (dict): Result dict from :obj:`mmdet.CustomDataset`.
-
-        Returns:
-            dict: The dict contains loaded image and meta information.
-        """
-        super().__call__(results)
-        results['cam2img'] = results['img_info']['cam_intrinsic']
-        return results
 
 
 @PIPELINES.register_module()

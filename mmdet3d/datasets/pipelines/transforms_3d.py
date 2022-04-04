@@ -11,9 +11,229 @@ from mmdet3d.core import VoxelGenerator
 from mmdet3d.core.bbox import (CameraInstance3DBoxes, DepthInstance3DBoxes,
                                LiDARInstance3DBoxes, box_np_ops)
 from mmdet.datasets.builder import PIPELINES
-from mmdet.datasets.pipelines import RandomFlip
+from mmdet.datasets.pipelines import RandomCrop, RandomFlip, Resize
 from ..builder import OBJECTSAMPLERS
 from .data_augment_utils import noise_per_object_v3_
+
+
+@PIPELINES.register_module()
+class RandomCrop3D(RandomCrop):
+    """3D version of RandomCrop.
+
+    RamdomCrop3D needs some customized settings and modifications for camera
+    intrinsic matrix.
+    """
+
+    def __init__(self,
+                 crop_size,
+                 crop_type='absolute',
+                 allow_negative_crop=False,
+                 recompute_bbox=False,
+                 bbox_clip_border=True,
+                 rel_offset_h=(0., 1.),
+                 rel_offset_w=(0., 1.)):
+        super().__init__(
+            crop_size=crop_size,
+            crop_type=crop_type,
+            allow_negative_crop=allow_negative_crop,
+            recompute_bbox=recompute_bbox,
+            bbox_clip_border=bbox_clip_border)
+        # rel_offset specifies the relative offset range of cropping origin
+        # [0., 1.] means starting from 0*margin to 1*margin + 1
+        self.rel_offset_h = rel_offset_h
+        self.rel_offset_w = rel_offset_w
+
+    def _crop_data(self, results, crop_size, allow_negative_crop):
+        """Function to randomly crop images, bounding boxes, masks, semantic
+        segmentation maps.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+            crop_size (tuple): Expected absolute size after cropping, (h, w).
+            allow_negative_crop (bool): Whether to allow a crop that does not
+                contain any bbox area. Default to False.
+        Returns:
+            dict: Randomly cropped results, 'img_shape' key in result dict is
+                updated according to crop size.
+        """
+        assert crop_size[0] > 0 and crop_size[1] > 0
+        for key in results.get('img_fields', ['img']):
+            img = results[key]
+            margin_h = max(img.shape[0] - crop_size[0], 0)
+            margin_w = max(img.shape[1] - crop_size[1], 0)
+            # TOCHECK: a little different from LIGA implementation
+            offset_h = np.random.randint(self.rel_offset_h[0] * margin_h,
+                                         self.rel_offset_h[1] * margin_h + 1)
+            offset_w = np.random.randint(self.rel_offset_w[0] * margin_w,
+                                         self.rel_offset_w[1] * margin_w + 1)
+            crop_h = min(crop_size[0], img.shape[0])
+            crop_w = min(crop_size[1], img.shape[1])
+            crop_y1, crop_y2 = offset_h, offset_h + crop_h
+            crop_x1, crop_x2 = offset_w, offset_w + crop_w
+
+            # crop the image
+            img = img[crop_y1:crop_y2, crop_x1:crop_x2, ...]
+            img_shape = img.shape
+            results[key] = img
+        results['img_shape'] = img_shape
+
+        # crop bboxes accordingly and clip to the image boundary
+        for key in results.get('bbox_fields', []):
+            # e.g. gt_bboxes and gt_bboxes_ignore
+            bbox_offset = np.array([offset_w, offset_h, offset_w, offset_h],
+                                   dtype=np.float32)
+            bboxes = results[key] - bbox_offset
+            if self.bbox_clip_border:
+                bboxes[:, 0::2] = np.clip(bboxes[:, 0::2], 0, img_shape[1])
+                bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[0])
+            valid_inds = (bboxes[:, 2] > bboxes[:, 0]) & (
+                bboxes[:, 3] > bboxes[:, 1])
+            # If the crop does not contain any gt-bbox area and
+            # allow_negative_crop is False, skip this image.
+            if (key == 'gt_bboxes' and not valid_inds.any()
+                    and not allow_negative_crop):
+                return None
+            results[key] = bboxes[valid_inds, :]
+            # label fields. e.g. gt_labels and gt_labels_ignore
+            label_key = self.bbox2label.get(key)
+            if label_key in results:
+                results[label_key] = results[label_key][valid_inds]
+
+            # mask fields, e.g. gt_masks and gt_masks_ignore
+            mask_key = self.bbox2mask.get(key)
+            if mask_key in results:
+                results[mask_key] = results[mask_key][
+                    valid_inds.nonzero()[0]].crop(
+                        np.asarray([crop_x1, crop_y1, crop_x2, crop_y2]))
+                if self.recompute_bbox:
+                    results[key] = results[mask_key].get_bboxes()
+
+        # crop semantic seg
+        for key in results.get('seg_fields', []):
+            results[key] = results[key][crop_y1:crop_y2, crop_x1:crop_x2]
+
+        # manipulate camera intrinsic matrix
+        # needs to apply offset to K instead of P2 (on KITTI)
+        K = results['cam2img'][:3, :3].copy()
+        inv_K = np.linalg.inv(K)
+        T = np.matmul(inv_K, results['cam2img'][:3])
+        K[0, 2] -= crop_x1
+        K[1, 2] -= crop_y1
+        offset_cam2img = np.matmul(K, T)
+        results['cam2img'][:offset_cam2img.shape[0], :offset_cam2img.
+                           shape[1]] = offset_cam2img
+        results['crop_offset'] = [crop_x1, crop_y1]
+
+        return results
+
+    def __call__(self, results):
+        """Call function to randomly crop images, bounding boxes, masks,
+        semantic segmentation maps.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+        Returns:
+            dict: Randomly cropped results, 'img_shape' key in result dict is
+                updated according to crop size.
+        """
+        image_size = results['img'].shape[:2]
+        crop_size = self._get_crop_size(image_size)
+        results = self._crop_data(results, crop_size, self.allow_negative_crop)
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(crop_size={self.crop_size}, '
+        repr_str += f'crop_type={self.crop_type}, '
+        repr_str += f'allow_negative_crop={self.allow_negative_crop}, '
+        repr_str += f'bbox_clip_border={self.bbox_clip_border}), '
+        repr_str += f'rel_offset_h={self.rel_offset_h}), '
+        repr_str += f'rel_offset_w={self.rel_offset_w})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class Resize3D(Resize):
+    """Resize 3D labels."""
+
+    def __init__(self,
+                 img_scale=None,
+                 multiscale_mode='range',
+                 ratio_range=None,
+                 keep_ratio=True,
+                 bbox_clip_border=True,
+                 backend='cv2',
+                 override=False):
+        super(Resize3D, self).__init__(
+            img_scale=img_scale,
+            multiscale_mode=multiscale_mode,
+            ratio_range=ratio_range,
+            keep_ratio=keep_ratio,
+            bbox_clip_border=bbox_clip_border,
+            backend=backend,
+            override=override)
+
+    def _random_scale(self, results):
+        """Randomly sample an img_scale according to ``ratio_range`` and
+        ``multiscale_mode``.
+
+        If ``ratio_range`` is specified, a ratio will be sampled and be
+        multiplied with ``ori_scale``.
+        If multiple scales are specified by ``img_scale``, a scale will be
+        sampled according to ``multiscale_mode``.
+        Otherwise, single scale will be used.
+
+        Args:
+            results (dict): Result dict from :obj:`dataset`.
+
+        Returns:
+            dict: Two new keys 'scale` and 'scale_idx` are added into \
+                ``results``, which would be used by subsequent pipelines.
+        """
+        ori_scale = results['img'].shape[:2]
+        if self.ratio_range is not None:
+            scale, scale_idx = self.random_sample_ratio(
+                ori_scale, self.ratio_range)
+        elif len(self.img_scale) == 1:
+            scale, scale_idx = self.img_scale[0], 0
+        elif self.multiscale_mode == 'range':
+            scale, scale_idx = self.random_sample(self.img_scale)
+        elif self.multiscale_mode == 'value':
+            scale, scale_idx = self.random_select(self.img_scale)
+        else:
+            raise NotImplementedError
+
+        results['scale'] = scale
+        results['scale_idx'] = scale_idx
+
+    def _resize_3d(self, results):
+        """Resize centers2d and modify camera intrinisc with
+        ``results['scale']``."""
+        if 'centers2d' in results:
+            results['centers2d'] *= results['scale_factor'][:2]
+        # resize image equals to change focal length and
+        # camera intrinsic
+        # TODO: add ori_cam2img to store the original intrinsic
+        results['cam2img'][0] *= results['scale_factor'][0].repeat(
+            len(results['cam2img'][0]))
+        results['cam2img'][1] *= results['scale_factor'][1].repeat(
+            len(results['cam2img'][1]))
+
+    def __call__(self, results):
+        """Call function to resize images, bounding boxes, masks, semantic
+        segmentation map.
+
+        Args:
+            results (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Resized results, 'img_shape', 'pad_shape', 'scale_factor', \
+                'keep_ratio' keys are added into result dict.
+        """
+        super(Resize3D, self).__call__(results)
+        self._resize_3d(results)
+
+        return results
 
 
 @PIPELINES.register_module()

@@ -1,7 +1,10 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmdet.models.backbones import SSDVGG, HRNet, ResNet, ResNetV1d, ResNeXt
+from .bev_hourglass import BEVHourglass
+from .dfm_backbone import DfMBackbone
 from .dgcnn import DGCNNBackbone
 from .dla import DLANet
+from .liga_resnet import LIGAResNet
 from .multi_backbone import MultiBackbone
 from .nostem_regnet import NoStemRegNet
 from .pointnet2_sa_msg import PointNet2SAMSG
@@ -11,5 +14,5 @@ from .second import SECOND
 __all__ = [
     'ResNet', 'ResNetV1d', 'ResNeXt', 'SSDVGG', 'HRNet', 'NoStemRegNet',
     'SECOND', 'DGCNNBackbone', 'PointNet2SASSG', 'PointNet2SAMSG',
-    'MultiBackbone', 'DLANet'
+    'MultiBackbone', 'DLANet', 'LIGAResNet', 'DfMBackbone', 'BEVHourglass'
 ]
