@@ -333,3 +333,227 @@ def yaw2local(yaw, loc):
         local_yaw[small_idx] += 2 * np.pi
 
     return local_yaw
+
+
+def boxes3d_lidar2cam(boxes3d_lidar, lidar2cam=None, pseudo_lidar=False):
+    """
+    :param boxes3d_lidar: (N, 7) [x, y, z, dx, dy, dz, heading],
+        (x, y, z) is the box center
+    :param calib:
+    :return:
+        boxes3d_camera: (N, 7) [x, y, z, l, h, w, r] in rect camera coords
+    """
+    # TODO: will modify original boxes3d_lidar
+    xyz_lidar = boxes3d_lidar[:, 0:3].copy()
+    l, w, h, = \
+        boxes3d_lidar[:, 3:4], boxes3d_lidar[:, 4:5], boxes3d_lidar[:, 5:6]
+    r = boxes3d_lidar[:, 6:7]
+
+    xyz_lidar[:, 2] -= h.reshape(-1) / 2
+    homo_xyz_lidar = np.concatenate(
+        [xyz_lidar, np.ones([xyz_lidar.shape[0], 1])], axis=-1)
+    if not pseudo_lidar:
+        assert lidar2cam is not None, 'lidar2cam can only be None ' \
+            'in pseudo_lidar mode'
+        xyz_cam = homo_xyz_lidar @ lidar2cam.T
+    else:
+        # transform xyz from pseudo-lidar to camera view
+        pseudo2cam_T = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
+                                dtype=np.float32)
+        xyz_cam = np.dot(homo_xyz_lidar, pseudo2cam_T)
+    r = -r - np.pi / 2
+    return np.concatenate([xyz_cam, l, h, w, r], axis=-1)
+
+
+def boxes3d_cam2img(boxes3d,
+                    calib,
+                    image_shape=None,
+                    return_neg_z_mask=False,
+                    fix_neg_z_bug=False):
+    """
+    :param boxes3d: (N, 7) [x, y, z, l, h, w, r] in rect camera coords
+    :param calib:
+    :return:
+        box_2d_preds: (N, 4) [x1, y1, x2, y2]
+    """
+    if not fix_neg_z_bug:
+        corners3d = boxes3d_to_corners3d_kitti_camera(boxes3d)
+        pts_img, _ = calib.rect_to_img(corners3d.reshape(-1, 3))
+        corners_in_image = pts_img.reshape(-1, 8, 2)
+
+        min_uv = np.min(corners_in_image, axis=1)  # (N, 2)
+        max_uv = np.max(corners_in_image, axis=1)  # (N, 2)
+        boxes2d_image = np.concatenate([min_uv, max_uv], axis=1)
+        if image_shape is not None:
+            boxes2d_image[:, 0] = np.clip(
+                boxes2d_image[:, 0], a_min=0, a_max=image_shape[1] - 1)
+            boxes2d_image[:, 1] = np.clip(
+                boxes2d_image[:, 1], a_min=0, a_max=image_shape[0] - 1)
+            boxes2d_image[:, 2] = np.clip(
+                boxes2d_image[:, 2], a_min=0, a_max=image_shape[1] - 1)
+            boxes2d_image[:, 3] = np.clip(
+                boxes2d_image[:, 3], a_min=0, a_max=image_shape[0] - 1)
+
+        if not return_neg_z_mask:
+            return boxes2d_image
+        else:
+            return boxes2d_image, np.all(corners3d[:, :, 2] >= 0.01, axis=1)
+    else:
+        num_boxes = boxes3d.shape[0]
+        corners3d = boxes3d_to_grid3d_kitti_camera(
+            boxes3d, size=7, surface=False)
+        if num_boxes != 0:
+            num_points = corners3d.shape[1]
+            pts_img, pts_depth = calib.rect_to_img(corners3d.reshape(-1, 3))
+            corners_in_image = pts_img.reshape(num_boxes, num_points, 2)
+            depth_in_image = pts_depth.reshape(num_boxes, num_points)
+
+            min_uv = np.array([
+                np.min(x[d > 0], axis=0)
+                for x, d in zip(corners_in_image, depth_in_image)
+            ])  # (N, 2)
+            max_uv = np.array([
+                np.max(x[d > 0], axis=0)
+                for x, d in zip(corners_in_image, depth_in_image)
+            ])  # (N, 2)
+            boxes2d_image = np.concatenate([min_uv, max_uv], axis=1)
+        else:
+            boxes2d_image = np.zeros([0, 4], dtype=np.float32)
+
+        if image_shape is not None:
+            boxes2d_image[:, 0] = np.clip(
+                boxes2d_image[:, 0], a_min=0, a_max=image_shape[1] - 1)
+            boxes2d_image[:, 1] = np.clip(
+                boxes2d_image[:, 1], a_min=0, a_max=image_shape[0] - 1)
+            boxes2d_image[:, 2] = np.clip(
+                boxes2d_image[:, 2], a_min=0, a_max=image_shape[1] - 1)
+            boxes2d_image[:, 3] = np.clip(
+                boxes2d_image[:, 3], a_min=0, a_max=image_shape[0] - 1)
+
+        if not return_neg_z_mask:
+            return boxes2d_image
+        else:
+            return boxes2d_image, np.all(corners3d[:, :, 2] >= 0.01, axis=1)
+
+
+def boxes3d_to_corners3d_kitti_camera(boxes3d, bottom_center=True):
+    """
+    :param boxes3d: (N, 7) [x, y, z, l, h, w, ry] in camera coords,
+        see the definition of ry in KITTI dataset
+    :param bottom_center: whether y is on the bottom center of object
+    :return: corners3d: (N, 8, 3)
+        7 -------- 4
+       /|         /|
+      6 -------- 5 .
+      | |        | |
+      . 3 -------- 0
+      |/         |/
+      2 -------- 1
+    """
+    boxes_num = boxes3d.shape[0]
+    l, h, w = boxes3d[:, 3], boxes3d[:, 4], boxes3d[:, 5]
+    x_corners = np.array(
+        [l / 2., l / 2., -l / 2., -l / 2., l / 2., l / 2., -l / 2., -l / 2],
+        dtype=np.float32).T
+    z_corners = np.array(
+        [w / 2., -w / 2., -w / 2., w / 2., w / 2., -w / 2., -w / 2., w / 2.],
+        dtype=np.float32).T
+    if bottom_center:
+        y_corners = np.zeros((boxes_num, 8), dtype=np.float32)
+        y_corners[:, 4:8] = -h.reshape(boxes_num, 1).repeat(
+            4, axis=1)  # (N, 8)
+    else:
+        y_corners = np.array([
+            h / 2., h / 2., h / 2., h / 2., -h / 2., -h / 2., -h / 2., -h / 2.
+        ],
+                             dtype=np.float32).T
+
+    ry = boxes3d[:, 6]
+    zeros, ones = np.zeros(
+        ry.size, dtype=np.float32), np.ones(
+            ry.size, dtype=np.float32)
+    rot_list = np.array([[np.cos(ry), zeros, -np.sin(ry)],
+                         [zeros, ones, zeros], [np.sin(ry), zeros,
+                                                np.cos(ry)]])  # (3, 3, N)
+    R_list = np.transpose(rot_list, (2, 0, 1))  # (N, 3, 3)
+
+    temp_corners = np.concatenate((x_corners.reshape(
+        -1, 8, 1), y_corners.reshape(-1, 8, 1), z_corners.reshape(-1, 8, 1)),
+                                  axis=2)  # (N, 8, 3)
+    rotated_corners = np.matmul(temp_corners, R_list)  # (N, 8, 3)
+    x_corners = rotated_corners[:, :, 0]
+    y_corners = rotated_corners[:, :, 1]
+    z_corners = rotated_corners[:, :, 2]
+
+    x_loc, y_loc, z_loc = boxes3d[:, 0], boxes3d[:, 1], boxes3d[:, 2]
+
+    x = x_loc.reshape(-1, 1) + x_corners.reshape(-1, 8)
+    y = y_loc.reshape(-1, 1) + y_corners.reshape(-1, 8)
+    z = z_loc.reshape(-1, 1) + z_corners.reshape(-1, 8)
+
+    corners = np.concatenate(
+        (x.reshape(-1, 8, 1), y.reshape(-1, 8, 1), z.reshape(-1, 8, 1)),
+        axis=2)
+
+    return corners.astype(np.float32)
+
+
+def boxes3d_to_grid3d_kitti_camera(boxes3d,
+                                   size=28,
+                                   bottom_center=True,
+                                   surface=False):
+    """
+    :param boxes3d: (N, 7) [x, y, z, l, h, w, ry] in camera coords,
+        see the definition of ry in KITTI dataset
+    :param bottom_center: whether y is on the bottom center of object
+    :return: corners3d: (N, 8, 3)
+        7 -------- 4
+       /|         /|
+      6 -------- 5 .
+      | |        | |
+      . 3 -------- 0
+      |/         |/
+      2 -------- 1
+    """
+    l, h, w = boxes3d[:, 3], boxes3d[:, 4], boxes3d[:, 5]
+    x_corners, y_corners, z_corners = np.meshgrid(
+        np.linspace(-0.5, 0.5, size), np.linspace(-0.5, 0.5, size),
+        np.linspace(-0.5, 0.5, size))
+    if surface:
+        surface_mask = (np.abs(x_corners)
+                        == 0.5) | (np.abs(y_corners) == 0.5) | (
+                            np.abs(z_corners) == 0.5)
+        x_corners = x_corners[surface_mask]
+        y_corners = y_corners[surface_mask]
+        z_corners = z_corners[surface_mask]
+    x_corners = x_corners.reshape([1, -1]) * l.reshape([-1, 1])
+    y_corners = y_corners.reshape([1, -1]) * h.reshape([-1, 1])
+    z_corners = z_corners.reshape([1, -1]) * w.reshape([-1, 1])
+    if bottom_center:
+        y_corners -= h.reshape([-1, 1]) / 2
+
+    ry = boxes3d[:, 6]
+    zeros, ones = np.zeros(
+        ry.size, dtype=np.float32), np.ones(
+            ry.size, dtype=np.float32)
+    rot_list = np.array([[np.cos(ry), zeros, -np.sin(ry)],
+                         [zeros, ones, zeros], [np.sin(ry), zeros,
+                                                np.cos(ry)]])  # (3, 3, N)
+    R_list = np.transpose(rot_list, (2, 0, 1))  # (N, 3, 3)
+
+    temp_corners = np.stack([x_corners, y_corners, z_corners],
+                            axis=-1)  # (N, 8, 3)
+    rotated_corners = np.matmul(temp_corners, R_list)  # (N, 8, 3)
+    x_corners = rotated_corners[:, :, 0]
+    y_corners = rotated_corners[:, :, 1]
+    z_corners = rotated_corners[:, :, 2]
+
+    x_loc, y_loc, z_loc = boxes3d[:, 0], boxes3d[:, 1], boxes3d[:, 2]
+
+    x = x_loc.reshape(-1, 1) + x_corners
+    y = y_loc.reshape(-1, 1) + y_corners
+    z = z_loc.reshape(-1, 1) + z_corners
+
+    corners = np.stack([x, y, z], axis=-1)
+
+    return corners.astype(np.float32)

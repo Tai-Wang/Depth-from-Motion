@@ -143,12 +143,15 @@ train_pipeline = [
     dict(
         type='VideoPipeline',
         num_ref_imgs=1,
+        random=False,  # TODO: turn on this choice during training
         transforms=[
-            dict(type='DepthPipeline', file_client_args=file_client_args),
+            dict(
+                type='LoadImageFromFileMono3D',
+                file_client_args=file_client_args),
             dict(type='RandomFlip3D', flip_ratio_bev_horizontal=0.5),
             dict(
                 type='Resize3D',
-                img_scale=[(1173, 352), (1387, 416)],
+                img_scale=[(1180, 356), (1304, 394)],
                 keep_ratio=True,
                 multiscale_mode='range'),
             dict(
@@ -159,11 +162,21 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=4,
+        use_dim=4,
+        file_client_args=file_client_args,
+        pseudo_lidar=True),
+    dict(type='GenerateAmodal2DBoxes'),
+    dict(type='GenerateDepthMap', generate_fgmask=True),
+    dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D',
-        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_maps'])
+        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_gt_img'])
 ]
 test_pipeline = [
     dict(

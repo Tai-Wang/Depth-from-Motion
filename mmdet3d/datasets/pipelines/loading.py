@@ -590,7 +590,8 @@ class LoadPointsFromFile(object):
                  use_dim=[0, 1, 2],
                  shift_height=False,
                  use_color=False,
-                 file_client_args=dict(backend='disk')):
+                 file_client_args=dict(backend='disk'),
+                 pseudo_lidar=False):
         self.shift_height = shift_height
         self.use_color = use_color
         if isinstance(use_dim, int):
@@ -604,6 +605,7 @@ class LoadPointsFromFile(object):
         self.use_dim = use_dim
         self.file_client_args = file_client_args.copy()
         self.file_client = None
+        self.pseudo_lidar = pseudo_lidar
 
     def _load_points(self, pts_filename):
         """Private function to load point clouds data.
@@ -645,6 +647,18 @@ class LoadPointsFromFile(object):
         points = points.reshape(-1, self.load_dim)
         points = points[:, self.use_dim]
         attribute_dims = None
+
+        if self.pseudo_lidar:
+            lidar2cam = results['lidar2cam']
+            points_xyz = points[:, :3]
+            homo_points_xyz = np.concatenate(
+                [points_xyz, np.ones([points.shape[0], 1])], axis=-1)
+            cam_points = homo_points_xyz @ lidar2cam.T
+            # cam points -> pseudo lidar points
+            pseudo2cam_T = np.array(
+                [[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]],
+                dtype=np.float32)
+            points[:, :3] = (cam_points @ np.linalg.inv(pseudo2cam_T))[:, :3]
 
         if self.shift_height:
             floor_height = np.percentile(points[:, 2], 0.99)

@@ -195,6 +195,7 @@ class KittiDataset(Custom3DDataset):
             plane_lidar = None
 
         difficulty = info['annos']['difficulty']
+        truncated = info['annos']['truncated']
         annos = info['annos']
         # we need other objects to avoid collision when sample
         annos = self.remove_dontcare(annos)
@@ -230,7 +231,8 @@ class KittiDataset(Custom3DDataset):
             labels=gt_labels,
             gt_names=gt_names,
             plane=plane_lidar,
-            difficulty=difficulty)
+            difficulty=difficulty,
+            truncated=truncated)
         return anns_results
 
     def drop_arrays_by_name(self, gt_names, used_classes):
