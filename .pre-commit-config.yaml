@@ -1,5 +1,5 @@
 repos:
-  - repo: https://gitlab.com/pycqa/flake8.git
+  - repo: https://github.com/PyCQA/flake8
     rev: 3.8.3
     hooks:
       - id: flake8
@@ -32,7 +32,7 @@ repos:
     rev: 0.7.14
     hooks:
       - id: mdformat
-        args: ["--number"]
+        args: [ "--number" ]
         additional_dependencies:
           - mdformat-gfm
           - mdformat_frontmatter
