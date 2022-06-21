@@ -5,7 +5,7 @@ readarray -t IGNORED_FILES < $( dirname "$0" )/covignore.cfg
 
 REUSE_COVERAGE_REPORT=${REUSE_COVERAGE_REPORT:-0}
 REPO=${1:-"origin"}
-BRANCH=${2:-"refactor_dev"}
+BRANCH=${2:-"waymo_dev"}
 
 git fetch $REPO $BRANCH
 
