@@ -29,11 +29,11 @@ linting:
     - echo "Configurating git..."
     - git config --local core.sshCommand "/usr/bin/ssh -i /root/.ssh/id_gitlab"
     - echo "Installing mmdet..."
-    - git clone --branch refactor_dev -c core.sshCommand="/usr/bin/ssh -i /root/.ssh/id_gitlab" git@gitlab.sh.sensetime.com:openmmlab-enterprise/openmmlab-ce/mmdetection.git /mmdet
+    - git clone --branch master -c core.sshCommand="/usr/bin/ssh -i /root/.ssh/id_gitlab" git@gitlab.sh.sensetime.com:openmmlab-enterprise/openmmlab-ce/mmdetection.git /mmdet
     - http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= pip install -e /mmdet -i https://pypi.tuna.tsinghua.edu.cn/simple/
     - python -c "import mmdet; print(mmdet.__version__)"
     - echo "Installing mmseg..."
-    - git clone --branch refactor_dev -c core.sshCommand="/usr/bin/ssh -i /root/.ssh/id_gitlab" git@gitlab.sh.sensetime.com:openmmlab-enterprise/openmmlab-ce/mmsegmentation.git /mmseg
+    - git clone --branch master -c core.sshCommand="/usr/bin/ssh -i /root/.ssh/id_gitlab" git@gitlab.sh.sensetime.com:openmmlab-enterprise/openmmlab-ce/mmsegmentation.git /mmseg
     - http_proxy= https_proxy= HTTP_PROXY= HTTPS_PROXY= pip install -e /mmseg -i https://pypi.tuna.tsinghua.edu.cn/simple/
     - python -c "import mmseg; print(mmseg.__version__)"
     - echo "Start building..."
