@@ -1,4 +1,6 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import copy
+
 import mmcv
 import numpy as np
 
@@ -20,9 +22,25 @@ class LoadMultiViewImageFromFiles(object):
             Defaults to 'unchanged'.
     """
 
-    def __init__(self, to_float32=False, color_type='unchanged'):
+    def __init__(self,
+                 to_float32=False,
+                 color_type='unchanged',
+                 file_client_args=dict(backend='disk'),
+                 num_views=5,
+                 num_ref_frames=-1,
+                 test_mode=False,
+                 set_default_scale=True):
         self.to_float32 = to_float32
         self.color_type = color_type
+        self.file_client_args = file_client_args.copy()
+        self.file_client = None
+        self.num_views = num_views
+        # num_ref_frames is used for multi-sweep loading
+        self.num_ref_frames = num_ref_frames
+        # when test_mode=False, we randomly select previous frames
+        # otherwise, select the earliest one
+        self.test_mode = test_mode
+        self.set_default_scale = set_default_scale
 
     def __call__(self, results):
         """Call function to load multi-view image from files.
@@ -42,33 +60,300 @@ class LoadMultiViewImageFromFiles(object):
                 - scale_factor (float): Scale factor.
                 - img_norm_cfg (dict): Normalization configuration of images.
         """
+        # TODO: consider split the multi-sweep part out of this pipeline
+        # Derive the mask and transform for loading of multi-sweep data
+        if self.num_ref_frames > 0:
+            # init choice with the current frame
+            init_choice = np.array([0], dtype=np.int64)
+            num_frames = len(results['img_filename']) // self.num_views - 1
+            if num_frames == 0:  # no previous frame, then copy cur frames
+                choices = np.random.choice(
+                    1, self.num_ref_frames, replace=True)
+            elif num_frames >= self.num_ref_frames:
+                # NOTE: suppose the info is saved following the order
+                # from latest to earlier frames
+                if self.test_mode:
+                    choices = np.arange(num_frames - self.num_ref_frames,
+                                        num_frames) + 1
+                # NOTE: +1 is for selecting previous frames
+                else:
+                    choices = np.random.choice(
+                        num_frames, self.num_ref_frames, replace=False) + 1
+            elif num_frames > 0 and num_frames < self.num_ref_frames:
+                if self.test_mode:
+                    base_choices = np.arange(num_frames) + 1
+                    random_choices = np.random.choice(
+                        num_frames,
+                        self.num_ref_frames - num_frames,
+                        replace=True) + 1
+                    choices = np.concatenate([base_choices, random_choices])
+                else:
+                    choices = np.random.choice(
+                        num_frames, self.num_ref_frames, replace=True) + 1
+            else:
+                raise NotImplementedError
+            choices = np.concatenate([init_choice, choices])
+            select_filename = []
+            for choice in choices:
+                select_filename += results['img_filename'][choice *
+                                                           self.num_views:
+                                                           (choice + 1) *
+                                                           self.num_views]
+            results['img_filename'] = select_filename
+            for key in ['lidar2img', 'cam2img', 'lidar2cam']:
+                if key in results:
+                    select_results = []
+                    for choice in choices:
+                        select_results += results[key][choice *
+                                                       self.num_views:(choice +
+                                                                       1) *
+                                                       self.num_views]
+                    results[key] = select_results
+            for key in ['ego2global']:
+                if key in results:
+                    select_results = []
+                    for choice in choices:
+                        select_results += [results[key][choice]]
+                    results[key] = select_results
+            # Transform lidar2img and lidar2cam to
+            # [cur_lidar]2[prev_img] and [cur_lidar]2[prev_cam]
+            for key in ['lidar2img', 'lidar2cam']:
+                if key in results:
+                    # only change matrices of previous frames
+                    for choice_idx in range(1, len(choices)):
+                        pad_prev_ego2global = np.eye(4)
+                        prev_ego2global = results['ego2global'][choice_idx]
+                        pad_prev_ego2global[:prev_ego2global.
+                                            shape[0], :prev_ego2global.
+                                            shape[1]] = prev_ego2global
+                        pad_cur_ego2global = np.eye(4)
+                        cur_ego2global = results['ego2global'][0]
+                        pad_cur_ego2global[:cur_ego2global.
+                                           shape[0], :cur_ego2global.
+                                           shape[1]] = cur_ego2global
+                        cur2prev = np.linalg.inv(pad_prev_ego2global).dot(
+                            pad_cur_ego2global)
+                        for result_idx in range(choice_idx * self.num_views,
+                                                (choice_idx + 1) *
+                                                self.num_views):
+                            results[key][result_idx] = \
+                                results[key][result_idx].dot(cur2prev)
+        # Support multi-view images with different shapes
+        # TODO: record the origin shape and padded shape
         filename = results['img_filename']
+
+        if self.file_client is None:
+            self.file_client = mmcv.FileClient(**self.file_client_args)
+
         # img is of shape (h, w, c, num_views)
-        img = np.stack(
-            [mmcv.imread(name, self.color_type) for name in filename], axis=-1)
+        # h and w can be different for different views
+        img_bytes = [self.file_client.get(name) for name in filename]
+        imgs = [
+            mmcv.imfrombytes(img_byte, flag=self.color_type)
+            for img_byte in img_bytes
+        ]
+        # handle the image with different shape
+        img_shapes = np.stack([img.shape for img in imgs], axis=0)
+        img_shape_max = np.max(img_shapes, axis=0)
+        img_shape_min = np.min(img_shapes, axis=0)
+        assert img_shape_min[-1] == img_shape_max[-1]
+        if not np.all(img_shape_max == img_shape_min):
+            pad_shape = img_shape_max[:2]
+        else:
+            pad_shape = None
+        if pad_shape is not None:
+            imgs = [
+                mmcv.impad(img, shape=pad_shape, pad_val=0) for img in imgs
+            ]
+        img = np.stack(imgs, axis=-1)
         if self.to_float32:
             img = img.astype(np.float32)
+
         results['filename'] = filename
-        # unravel to list, see `DefaultFormatBundle` in formatting.py
+        # unravel to list, see `DefaultFormatBundle` in formating.py
         # which will transpose each image separately and then stack into array
         results['img'] = [img[..., i] for i in range(img.shape[-1])]
         results['img_shape'] = img.shape
         results['ori_shape'] = img.shape
         # Set initial values for default meta_keys
         results['pad_shape'] = img.shape
-        results['scale_factor'] = 1.0
+        if self.set_default_scale:
+            results['scale_factor'] = 1.0
         num_channels = 1 if len(img.shape) < 3 else img.shape[2]
         results['img_norm_cfg'] = dict(
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
             to_rgb=False)
+        results['num_views'] = self.num_views
+        results['num_ref_frames'] = self.num_ref_frames
+        if 'cam2img' in results:
+            results['ori_cam2img'] = copy.deepcopy(results['cam2img'])
+        if 'lidar2img' in results:
+            results['ori_lidar2img'] = copy.deepcopy(results['lidar2img'])
         return results
 
     def __repr__(self):
         """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
         repr_str += f'(to_float32={self.to_float32}, '
-        repr_str += f"color_type='{self.color_type}')"
+        repr_str += f"color_type='{self.color_type}', "
+        repr_str += f'num_views={self.num_views}, '
+        repr_str += f'num_ref_frames={self.num_ref_frames}, '
+        repr_str += f'test_mode={self.test_mode})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class LoadMultiViewDepthFromFiles(object):
+    """Load multi channel images from a list of separate channel files.
+
+    Expects results['img_filename'] to be a list of filenames.
+
+    Args:
+        to_float32 (bool, optional): Whether to convert the img to float32.
+            Defaults to False.
+    """
+
+    def __init__(self,
+                 to_float32=False,
+                 file_client_args=dict(backend='disk'),
+                 with_transform=True):
+        self.to_float32 = to_float32
+        self.file_client_args = file_client_args
+        self.file_client = None
+        self.with_transform = with_transform
+
+    def __call__(self, results):
+        """Call function to load multi-view image from files.
+
+        Args:
+            results (dict): Result dict containing multi-view image filenames.
+
+        Returns:
+            dict: The result dict containing the multi-view image data.
+                Added keys and values are described below.
+
+                - filename (str): Multi-view image filenames.
+                - img (np.ndarray): Multi-view image arrays.
+                - img_shape (tuple[int]): Shape of multi-view image arrays.
+                - ori_shape (tuple[int]): Shape of original image arrays.
+                - pad_shape (tuple[int]): Shape of padded image arrays.
+                - scale_factor (float): Scale factor.
+                - img_norm_cfg (dict): Normalization configuration of images.
+        """
+        # Support multi-view images with different shapes
+        # TODO: record the origin shape and padded shape
+        # NOTE: we only load the depth_img of current frame for supervision
+        img_filenames = results['img_filename'][:results['num_views']]
+        depth_filenames = [
+            img_filename.replace('image_', 'depth_image_')
+            for img_filename in img_filenames
+        ]
+
+        if self.file_client is None:
+            self.file_client = mmcv.FileClient(**self.file_client_args)
+
+        # depth_img is of shape (h, w, num_views)
+        # h and w can be different for different views
+        depth_bytes = [self.file_client.get(name) for name in depth_filenames]
+        depth_imgs = [
+            mmcv.imfrombytes(depth_byte, flag='grayscale')
+            for depth_byte in depth_bytes
+        ]
+        # handle the image with different shape
+        depth_img_shapes = np.stack(
+            [depth_img.shape for depth_img in depth_imgs], axis=0)
+        depth_img_shape_max = np.max(depth_img_shapes, axis=0)
+        depth_img_shape_min = np.min(depth_img_shapes, axis=0)
+        assert depth_img_shape_min[-1] == depth_img_shape_max[-1]
+        if not np.all(depth_img_shape_max == depth_img_shape_min):
+            pad_shape = results['img_shape']
+        else:
+            pad_shape = None
+        if pad_shape is not None:
+            depth_imgs = [
+                mmcv.impad(depth_img, shape=pad_shape, pad_val=0)
+                for depth_img in depth_imgs
+            ]
+        depth_img = np.stack(depth_imgs, axis=-1)
+        if self.to_float32:
+            depth_img = depth_img.astype(np.float32)
+
+        # unravel to list, see `DefaultFormatBundle` in formating.py
+        # which will transpose each image separately and then stack into array
+        results['depth_img'] = [
+            depth_img[..., i] for i in range(depth_img.shape[-1])
+        ]
+        # hack the depth_fields with seg_fields given their similarity
+        # TODO: distinguish seg_fields and depth_fields
+        if self.with_transform:
+            # add into seg_fields to apply transforms same as imgs
+            results['seg_fields'].append('depth_img')
+        return results
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(to_float32={self.to_float32})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class LoadDepthFromFile(object):
+    """Load depth maps."""
+
+    def __init__(self,
+                 to_float32=False,
+                 file_client_args=dict(backend='disk'),
+                 with_transform=True):
+        self.to_float32 = to_float32
+        self.file_client_args = file_client_args
+        self.file_client = None
+        self.with_transform = with_transform
+
+    def __call__(self, results):
+        """Call function to load depth maps from files.
+
+        Args:
+            results (dict): Result dict containing multi-frame image filenames.
+        Returns:
+            dict: The result dict containing the multi-frame image data.
+                Added keys are deducted from all pipelines from
+                self.transforms.
+        """
+        if self.file_client is None:
+            self.file_client = mmcv.FileClient(**self.file_client_args)
+        img_filename = results['filename']
+
+        if 'samples' in img_filename:  # nuscenes
+            depth_filename = img_filename.replace('samples', 'depths').replace(
+                'jpg', 'png')
+            depth_img = np.load(depth_filename)['velodyne_depth']
+        elif 'kitti_format' in img_filename:  # waymo
+            depth_filename = img_filename.replace('image_', 'depth_image_')
+            depth_bytes = self.file_client.get(depth_filename)
+            depth_img = mmcv.imfrombytes(depth_bytes, flag='grayscale')
+        else:  # KITTI
+            depth_filename = img_filename.replace('image_2', 'depth_2')
+            depth_bytes = self.file_client.get(depth_filename)
+            depth_img = mmcv.imfrombytes(depth_bytes, flag='grayscale')
+
+        if self.to_float32:
+            depth_img = depth_img.astype(np.float32)
+
+        results['depth_img'] = depth_img
+        # hack the depth_fields with seg_fields given their similarity
+        # TODO: distinguish seg_fields and depth_fields
+        if self.with_transform:
+            # add into seg_fields to apply transforms same as imgs
+            results['seg_fields'].append('depth_img')
+
+        return results
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(transforms={self.transforms}, '
         return repr_str
 
 

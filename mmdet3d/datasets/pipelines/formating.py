@@ -48,6 +48,16 @@ class DefaultFormatBundle(object):
             else:
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
                 results['img'] = DC(to_tensor(img), stack=True)
+        if 'depth_img' in results:
+            if isinstance(results['depth_img'], list):
+                # process multiple imgs in single frame
+                depth_imgs = np.ascontiguousarray(
+                    np.stack(results['depth_img'], axis=0))
+                results['depth_img'] = DC(to_tensor(depth_imgs), stack=True)
+            else:
+                depth_img = np.ascontiguousarray(
+                    results['depth_img'][:, :, np.newaxis].transpose(2, 0, 1))
+                results['depth_img'] = DC(to_tensor(depth_img), stack=True)
         for key in [
                 'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',
                 'gt_labels_3d', 'attr_labels', 'pts_instance_mask',
@@ -137,7 +147,10 @@ class Collect3D(object):
                    'box_type_3d', 'img_norm_cfg', 'pcd_trans', 'sample_idx',
                    'pcd_scale_factor', 'pcd_rotation', 'pcd_rotation_angle',
                    'pts_filename', 'transformation_3d_flow', 'trans_mat',
-                   'affine_aug')):
+                   'affine_aug', 'sweep_img_metas', 'ori_cam2img',
+                   'cam2global', 'crop_offset', 'lidar2cam', 'ori_lidar2img',
+                   'num_ref_frames', 'num_views', 'ego2global',
+                   'img_crop_offset')):
         self.keys = keys
         self.meta_keys = meta_keys
 

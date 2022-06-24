@@ -33,7 +33,8 @@ def test_load_multi_view_image_from_files():
 
     repr_str = repr(multi_view_img_loader)
     expected_str = 'LoadMultiViewImageFromFiles(to_float32=True, ' \
-                   "color_type='unchanged')"
+                   "color_type='unchanged', num_views=5, num_ref_frames=-1," \
+                   ' test_mode=False)'
     assert repr_str == expected_str
 
     # test LoadMultiViewImageFromFiles's compatibility with DefaultFormatBundle

@@ -85,7 +85,7 @@ class Custom3DDataset(Dataset):
         # load annotations
         if hasattr(self.file_client, 'get_local_path'):
             with self.file_client.get_local_path(self.ann_file) as local_path:
-                self.data_infos = self.load_annotations(open(local_path, 'rb'))
+                self.data_infos = self.load_annotations(local_path)
         else:
             warnings.warn(
                 'The used MMCV version does not have get_local_path. '
@@ -111,8 +111,7 @@ class Custom3DDataset(Dataset):
         Returns:
             list[dict]: List of annotations.
         """
-        # loading data from a file-like object needs file format
-        return mmcv.load(ann_file, file_format='pkl')
+        return mmcv.load(ann_file)
 
     def get_data_info(self, index):
         """Get data info according to the given index.

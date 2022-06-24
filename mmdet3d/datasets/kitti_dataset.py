@@ -117,22 +117,40 @@ class KittiDataset(Custom3DDataset):
         """
         info = self.data_infos[index]
         sample_idx = info['image']['image_idx']
-        img_filename = os.path.join(self.data_root,
-                                    info['image']['image_path'])
+        img_info = dict()
+        img_info['filename'] = os.path.join(self.data_root,
+                                            info['image']['image_path'])
 
         # TODO: consider use torch.Tensor only
         rect = info['calib']['R0_rect'].astype(np.float32)
         Trv2c = info['calib']['Tr_velo_to_cam'].astype(np.float32)
         P2 = info['calib']['P2'].astype(np.float32)
+        cam2img = P2
         lidar2img = P2 @ rect @ Trv2c
+        lidar2cam = rect @ Trv2c
+        if 'cam2global' in info['image']:
+            img_info['cam2global'] = info['image']['cam2global']
+        if 'sweeps' in info['image']:
+            sweeps_info = info['image']['sweeps']
+            sweeps = []  # avoid modify the original sweeps_info
+            for sweep_info in sweeps_info:
+                sweep = {}
+                for key in sweep_info:
+                    sweep[key] = sweep_info[key]
+                sweep['data_path'] = os.path.join(self.data_root,
+                                                  sweep_info['data_path'])
+                sweeps.append(sweep)
+            img_info['sweeps'] = sweeps
 
         pts_filename = self._get_pts_filename(sample_idx)
         input_dict = dict(
             sample_idx=sample_idx,
             pts_filename=pts_filename,
             img_prefix=None,
-            img_info=dict(filename=img_filename),
-            lidar2img=lidar2img)
+            img_info=img_info,
+            cam2img=cam2img,
+            lidar2img=lidar2img,
+            lidar2cam=lidar2cam)
 
         if not self.test_mode:
             annos = self.get_ann_info(index)
@@ -181,7 +199,11 @@ class KittiDataset(Custom3DDataset):
         else:
             plane_lidar = None
 
-        difficulty = info['annos']['difficulty']
+        if 'difficulty' in info['annos'].keys():
+            difficulty = info['annos']['difficulty']
+        else:
+            difficulty = None
+        truncated = info['annos']['truncated']
         annos = info['annos']
         # we need other objects to avoid collision when sample
         annos = self.remove_dontcare(annos)
@@ -217,7 +239,8 @@ class KittiDataset(Custom3DDataset):
             labels=gt_labels,
             gt_names=gt_names,
             plane=plane_lidar,
-            difficulty=difficulty)
+            difficulty=difficulty,
+            truncated=truncated)
         return anns_results
 
     def drop_arrays_by_name(self, gt_names, used_classes):
@@ -585,10 +608,9 @@ class KittiDataset(Custom3DDataset):
 
         if pklfile_prefix is not None:
             # save file in pkl format
-            pklfile_path = (
-                pklfile_prefix[:-4] if pklfile_prefix.endswith(
-                    ('.pkl', '.pickle')) else pklfile_prefix)
-            mmcv.dump(det_annos, pklfile_path)
+            if not pklfile_prefix.endswith(('.pkl', '.pickle')):
+                out = f'{pklfile_prefix}.pkl'
+            mmcv.dump(det_annos, out)
 
         if submission_prefix is not None:
             # save file in submission format
@@ -654,7 +676,7 @@ class KittiDataset(Custom3DDataset):
                 box3d_camera=np.zeros([0, 7]),
                 box3d_lidar=np.zeros([0, 7]),
                 scores=np.zeros([0]),
-                label_preds=np.zeros([0, 4]),
+                label_preds=np.zeros([0]),
                 sample_idx=sample_idx)
 
         rect = info['calib']['R0_rect'].astype(np.float32)
@@ -663,7 +685,12 @@ class KittiDataset(Custom3DDataset):
         img_shape = info['image']['image_shape']
         P2 = box_preds.tensor.new_tensor(P2)
 
-        box_preds_camera = box_preds.convert_to(Box3DMode.CAM, rect @ Trv2c)
+        # support pseudo-lidar mode for vision-based BEV methods
+        if box_dict.get('pseudo_lidar', False):
+            box_preds_camera = box_preds.convert_to(Box3DMode.CAM, None)
+        else:
+            box_preds_camera = box_preds.convert_to(Box3DMode.CAM,
+                                                    rect @ Trv2c)
 
         box_corners = box_preds_camera.corners
         box_corners_in_image = points_cam2img(box_corners, P2)
