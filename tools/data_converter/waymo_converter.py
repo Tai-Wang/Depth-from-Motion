@@ -6,9 +6,8 @@ r"""Adapted from `Waymo to KITTI converter
 try:
     from waymo_open_dataset import dataset_pb2
 except ImportError:
-    raise ImportError(
-        'Please run "pip install waymo-open-dataset-tf-2-1-0==1.2.0" '
-        'to install the official devkit first.')
+    raise ImportError('Please run "pip install waymo-open-dataset-tf-2-5-0" '
+                      '>1.4.5 to install the official devkit first.')
 
 from glob import glob
 from os.path import join
@@ -17,8 +16,8 @@ import mmcv
 import numpy as np
 import tensorflow as tf
 from waymo_open_dataset.utils import range_image_utils, transform_utils
-from waymo_open_dataset.utils.frame_utils import \
-    parse_range_image_and_camera_projection
+from waymo_open_dataset.utils.frame_utils import (
+    convert_range_image_to_cartesian, parse_range_image_and_camera_projection)
 
 
 class Waymo2KITTI(object):
@@ -41,7 +40,9 @@ class Waymo2KITTI(object):
                  save_dir,
                  prefix,
                  workers=64,
-                 test_mode=False):
+                 test_mode=False,
+                 save_cam_sync_labels=True,
+                 file_client_args=dict(backend='disk')):
         self.filter_empty_3dboxes = True
         self.filter_no_label_zone_points = True
 
@@ -57,10 +58,15 @@ class Waymo2KITTI(object):
         if int(tf.__version__.split('.')[0]) < 2:
             tf.enable_eager_execution()
 
-        self.lidar_list = [
-            '_FRONT', '_FRONT_RIGHT', '_FRONT_LEFT', '_SIDE_RIGHT',
-            '_SIDE_LEFT'
+        # keep the order defined by the official protocol
+        self.cam_list = [
+            '_FRONT',
+            '_FRONT_LEFT',
+            '_FRONT_RIGHT',
+            '_SIDE_LEFT',
+            '_SIDE_RIGHT',
         ]
+        self.lidar_list = ['TOP', 'FRONT', 'SIDE_LEFT', 'SIDE_RIGHT', 'REAR']
         self.type_list = [
             'UNKNOWN', 'VEHICLE', 'PEDESTRIAN', 'SIGN', 'CYCLIST'
         ]
@@ -77,16 +83,35 @@ class Waymo2KITTI(object):
         self.prefix = prefix
         self.workers = int(workers)
         self.test_mode = test_mode
+        self.save_cam_sync_labels = save_cam_sync_labels
+        self.file_client_args = file_client_args
 
-        self.tfrecord_pathnames = sorted(
-            glob(join(self.load_dir, '*.tfrecord')))
+        if self.file_client_args['backend'] == 'disk':
+            self.tfrecord_pathnames = sorted(
+                glob(join(self.load_dir, '*.tfrecord')))
+        else:
+            self.file_client = mmcv.FileClient(**file_client_args)
+            self.load_dir = self.file_client.client._map_path('data/waymo/')
+            from petrel_client.client import Client
+            client = Client()
+            contents = client.list(self.load_dir)
+            self.tfrecord_pathnames = list()
+            for content in sorted(list(contents)):
+                if content.endswith('tfrecord'):
+                    self.tfrecord_pathnames.append(
+                        join(self.load_dir, content))
 
         self.label_save_dir = f'{self.save_dir}/label_'
         self.label_all_save_dir = f'{self.save_dir}/label_all'
         self.image_save_dir = f'{self.save_dir}/image_'
+        self.depth_image_save_dir = f'{self.save_dir}/depth_image_'
         self.calib_save_dir = f'{self.save_dir}/calib'
         self.point_cloud_save_dir = f'{self.save_dir}/velodyne'
         self.pose_save_dir = f'{self.save_dir}/pose'
+        if self.save_cam_sync_labels:
+            self.cam_sync_label_save_dir = f'{self.save_dir}/cam_sync_label_'
+            self.cam_sync_label_all_save_dir = \
+                f'{self.save_dir}/cam_sync_label_all'
         self.timestamp_save_dir = f'{self.save_dir}/timestamp'
 
         self.create_folder()
@@ -123,7 +148,10 @@ class Waymo2KITTI(object):
             self.save_timestamp(frame, file_idx, frame_idx)
 
             if not self.test_mode:
+                self.save_depth_image(frame, file_idx, frame_idx)
                 self.save_label(frame, file_idx, frame_idx)
+                if self.save_cam_sync_labels:
+                    self.save_label(frame, file_idx, frame_idx, cam_sync=True)
 
     def __len__(self):
         """Length of the filename list."""
@@ -143,6 +171,79 @@ class Waymo2KITTI(object):
                 f'{str(frame_idx).zfill(3)}.png'
             img = mmcv.imfrombytes(img.image)
             mmcv.imwrite(img, img_path)
+
+    def save_depth_image(self, frame, file_idx, frame_idx):
+        """Parse and save the depth images in png format.
+
+        Args:
+            frame (:obj:`Frame`): Open dataset frame proto.
+            file_idx (int): Current file index.
+            frame_idx (int): Current frame index.
+        """
+        parse_results = parse_range_image_and_camera_projection(frame)
+        # 4 returns for the latest waymo devkit while 3 for previous version
+        # 4 returns: range_images. cam_projs, seg_labels, top_pose
+        range_images = parse_results[0]
+        camera_projections = parse_results[1]
+        range_image_top_pose = parse_results[-1]
+
+        return_depth_imgs = []
+        # take first 2 returns of lidar by default
+        for ri_index in range(2):
+            multi_view_depth_imgs = []
+            cartesian_range_images = convert_range_image_to_cartesian(
+                frame, range_images, range_image_top_pose, ri_index)
+            for cam_idx in range(len(self.cam_list)):
+                cc = frame.context.camera_calibrations[cam_idx]
+                extrinsic = tf.reshape(
+                    tf.constant(cc.extrinsic.transform), [4, 4])
+                extrinsic = tf.expand_dims(extrinsic, 0)
+                # camera name = cam_idx + 1
+                # lidar name = lidar_idx + 1
+                multi_lidar_depth_imgs = []
+                for lidar_idx in range(len(self.lidar_list)):
+                    cart_range_img = tf.expand_dims(
+                        cartesian_range_images[lidar_idx + 1], 0)
+                    cam_projection = camera_projections[lidar_idx +
+                                                        1][ri_index]
+                    cp_tensor = tf.reshape(
+                        tf.convert_to_tensor(value=cam_projection.data),
+                        cam_projection.shape.dims)
+                    cp_tensor = tf.expand_dims(cp_tensor, 0)
+                    multi_lidar_depth_imgs.append(
+                        range_image_utils.build_camera_depth_image(
+                            cart_range_img, extrinsic, cp_tensor,
+                            [cc.height, cc.width], cam_idx + 1))
+                multi_view_depth_imgs.append(multi_lidar_depth_imgs)
+            return_depth_imgs.append(multi_view_depth_imgs)
+
+        for cam_idx in range(len(self.cam_list)):
+            cc = frame.context.camera_calibrations[cam_idx]
+            merged_depth_img = np.zeros([cc.height, cc.width])
+            # first assign the value of second return (always farther away)
+            # index 1 here refers to the second return
+            for lidar_idx in range(len(self.lidar_list)):
+                depth_img = \
+                    return_depth_imgs[1][cam_idx][lidar_idx].numpy()[0]
+                vs, us = np.nonzero(depth_img)
+                merged_depth_img[vs, us] = depth_img[vs, us]
+            # then assign the value of first return
+            # index 0 here refers to the first return
+            for lidar_idx in range(len(self.lidar_list)):
+                depth_img = \
+                    return_depth_imgs[0][cam_idx][lidar_idx].numpy()[0]
+                vs, us = np.nonzero(depth_img)
+                merged_depth_img[vs, us] = depth_img[vs, us]
+            save_path = f'{self.depth_image_save_dir}' + \
+                f'{str(cam_idx)}/' + \
+                f'{self.prefix}{str(file_idx).zfill(3)}' + \
+                f'{str(frame_idx).zfill(3)}.png'
+            # Note: We support saving the depth map with different backends
+            # But it uses the loading client args by default
+            mmcv.imwrite(
+                merged_depth_img,
+                save_path,
+                file_client_args=self.file_client_args)
 
     def save_calib(self, frame, file_idx, frame_idx):
         """Parse and save the calibration data.
@@ -208,8 +309,12 @@ class Waymo2KITTI(object):
             file_idx (int): Current file index.
             frame_idx (int): Current frame index.
         """
-        range_images, camera_projections, range_image_top_pose = \
-            parse_range_image_and_camera_projection(frame)
+        parse_results = parse_range_image_and_camera_projection(frame)
+        # 4 returns for the latest waymo devkit while 3 for previous version
+        # 4 returns: range_images. cam_projs, seg_labels, top_pose
+        range_images = parse_results[0]
+        camera_projections = parse_results[1]
+        range_image_top_pose = parse_results[-1]
 
         # First return
         points_0, cp_points_0, intensity_0, elongation_0, mask_indices_0 = \
@@ -242,9 +347,8 @@ class Waymo2KITTI(object):
         points = np.concatenate([points_0, points_1], axis=0)
         intensity = np.concatenate([intensity_0, intensity_1], axis=0)
         elongation = np.concatenate([elongation_0, elongation_1], axis=0)
-        mask_indices = np.concatenate([mask_indices_0, mask_indices_1], axis=0)
-
         # timestamp = frame.timestamp_micros * np.ones_like(intensity)
+        mask_indices = np.concatenate([mask_indices_0, mask_indices_1], axis=0)
 
         # concatenate x,y,z, intensity, elongation, timestamp (6-dim)
         point_cloud = np.column_stack(
@@ -254,7 +358,7 @@ class Waymo2KITTI(object):
             f'{str(file_idx).zfill(3)}{str(frame_idx).zfill(3)}.bin'
         point_cloud.astype(np.float32).tofile(pc_path)
 
-    def save_label(self, frame, file_idx, frame_idx):
+    def save_label(self, frame, file_idx, frame_idx, cam_sync=False):
         """Parse and save the label data in txt format.
         The relation between waymo and kitti coordinates is noteworthy:
         1. x, y, z correspond to l, w, h (waymo) -> l, h, w (kitti)
@@ -267,9 +371,12 @@ class Waymo2KITTI(object):
             file_idx (int): Current file index.
             frame_idx (int): Current frame index.
         """
-        fp_label_all = open(
-            f'{self.label_all_save_dir}/{self.prefix}' +
-            f'{str(file_idx).zfill(3)}{str(frame_idx).zfill(3)}.txt', 'w+')
+        label_all_path = f'{self.label_all_save_dir}/{self.prefix}' + \
+            f'{str(file_idx).zfill(3)}{str(frame_idx).zfill(3)}.txt'
+        if cam_sync:
+            label_all_path = label_all_path.replace('label_',
+                                                    'cam_sync_label_')
+        fp_label_all = open(label_all_path, 'w+')
         id_to_bbox = dict()
         id_to_name = dict()
         for labels in frame.projected_lidar_labels:
@@ -289,11 +396,26 @@ class Waymo2KITTI(object):
             bounding_box = None
             name = None
             id = obj.id
-            for lidar in self.lidar_list:
-                if id + lidar in id_to_bbox:
-                    bounding_box = id_to_bbox.get(id + lidar)
-                    name = str(id_to_name.get(id + lidar))
+            for proj_cam in self.cam_list:
+                if id + proj_cam in id_to_bbox:
+                    bounding_box = id_to_bbox.get(id + proj_cam)
+                    name = str(id_to_name.get(id + proj_cam))
                     break
+
+            # NOTE: the 2D labels do not have strict correspondence with
+            # the projected 2D lidar labels
+            # e.g.: the projected 2D labels can be in camera 2
+            # while the most_visible_camera can have id 4
+            if cam_sync:
+                if obj.most_visible_camera_name:
+                    name = str(
+                        self.cam_list.index(
+                            f'_{obj.most_visible_camera_name}'))
+                    box3d = obj.camera_synced_box
+                else:
+                    continue
+            else:
+                box3d = obj.box
 
             if bounding_box is None or name is None:
                 name = '0'
@@ -309,20 +431,20 @@ class Waymo2KITTI(object):
 
             my_type = self.waymo_to_kitti_class_map[my_type]
 
-            height = obj.box.height
-            width = obj.box.width
-            length = obj.box.length
+            height = box3d.height
+            width = box3d.width
+            length = box3d.length
 
-            x = obj.box.center_x
-            y = obj.box.center_y
-            z = obj.box.center_z - height / 2
+            x = box3d.center_x
+            y = box3d.center_y
+            z = box3d.center_z - height / 2
 
             # project bounding box to the virtual reference frame
             pt_ref = self.T_velo_to_front_cam @ \
                 np.array([x, y, z, 1]).reshape((4, 1))
             x, y, z, _ = pt_ref.flatten().tolist()
 
-            rotation_y = -obj.box.heading - np.pi / 2
+            rotation_y = -box3d.heading - np.pi / 2
             track_id = obj.id
 
             # not available
@@ -344,9 +466,11 @@ class Waymo2KITTI(object):
             else:
                 line_all = line[:-1] + ' ' + name + '\n'
 
-            fp_label = open(
-                f'{self.label_save_dir}{name}/{self.prefix}' +
-                f'{str(file_idx).zfill(3)}{str(frame_idx).zfill(3)}.txt', 'a')
+            label_path = f'{self.label_save_dir}{name}/{self.prefix}' + \
+                f'{str(file_idx).zfill(3)}{str(frame_idx).zfill(3)}.txt'
+            if cam_sync:
+                label_path = label_path.replace('label_', 'cam_sync_label_')
+            fp_label = open(label_path, 'a')
             fp_label.write(line)
             fp_label.close()
 
@@ -399,9 +523,12 @@ class Waymo2KITTI(object):
             dir_list1 = [
                 self.label_all_save_dir, self.calib_save_dir,
                 self.point_cloud_save_dir, self.pose_save_dir,
-                self.timestamp_save_dir
+                self.timestamp_save_dir, self.cam_sync_label_all_save_dir
             ]
-            dir_list2 = [self.label_save_dir, self.image_save_dir]
+            dir_list2 = [
+                self.label_save_dir, self.image_save_dir,
+                self.cam_sync_label_save_dir
+            ]
         else:
             dir_list1 = [
                 self.calib_save_dir, self.point_cloud_save_dir,

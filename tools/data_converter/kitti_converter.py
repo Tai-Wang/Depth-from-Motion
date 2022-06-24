@@ -45,8 +45,9 @@ def _read_imageset_file(path):
 
 
 class _NumPointsInGTCalculater:
-    """Calculate the number of points inside the ground truth box. This is the
-    parallel version. For the serialized version, please refer to
+    """Calculate the number of points inside the ground truth box.
+
+    This is the parallel version. For the serialized version, please refer to
     `_calculate_num_points_in_gt`.
 
     Args:
@@ -56,8 +57,12 @@ class _NumPointsInGTCalculater:
             outside of image. Default: True.
         num_features (int, optional): Number of features per point.
             Default: False.
-        num_worker (int, optional): the number of parallel workers to use.
+        num_workers (int, optional): the number of parallel workers to use.
             Default: 8.
+        file_client_args (dict, optional): Config dict of file clients,
+            refer to
+            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
+            for more details. Defaults to dict(backend='disk').
     """
 
     def __init__(self,
@@ -65,12 +70,15 @@ class _NumPointsInGTCalculater:
                  relative_path,
                  remove_outside=True,
                  num_features=4,
-                 num_worker=8) -> None:
+                 num_workers=8,
+                 file_client_args=dict(backend='disk')) -> None:
         self.data_path = data_path
         self.relative_path = relative_path
         self.remove_outside = remove_outside
         self.num_features = num_features
-        self.num_worker = num_worker
+        self.num_workers = num_workers
+        self.file_client_args = file_client_args
+        self.file_client = mmcv.FileClient(**file_client_args)
 
     def calculate_single(self, info):
         pc_info = info['point_cloud']
@@ -80,8 +88,9 @@ class _NumPointsInGTCalculater:
             v_path = str(Path(self.data_path) / pc_info['velodyne_path'])
         else:
             v_path = pc_info['velodyne_path']
-        points_v = np.fromfile(
-            v_path, dtype=np.float32,
+        pts_bytes = self.file_client.get(v_path)
+        points_v = np.frombuffer(
+            pts_bytes, dtype=np.float32,
             count=-1).reshape([-1, self.num_features])
         rect = calib['R0_rect']
         Trv2c = calib['Tr_velo_to_cam']
@@ -108,7 +117,7 @@ class _NumPointsInGTCalculater:
 
     def calculate(self, infos):
         ret_infos = mmcv.track_parallel_progress(self.calculate_single, infos,
-                                                 self.num_worker)
+                                                 self.num_workers)
         for i, ret_info in enumerate(ret_infos):
             infos[i] = ret_info
 
@@ -117,7 +126,9 @@ def _calculate_num_points_in_gt(data_path,
                                 infos,
                                 relative_path,
                                 remove_outside=True,
-                                num_features=4):
+                                num_features=4,
+                                file_client_args=dict(backend='disk')):
+    file_client = mmcv.FileClient(**file_client_args)
     for info in mmcv.track_iter_progress(infos):
         pc_info = info['point_cloud']
         image_info = info['image']
@@ -126,8 +137,11 @@ def _calculate_num_points_in_gt(data_path,
             v_path = str(Path(data_path) / pc_info['velodyne_path'])
         else:
             v_path = pc_info['velodyne_path']
-        points_v = np.fromfile(
-            v_path, dtype=np.float32, count=-1).reshape([-1, num_features])
+
+        pts_bytes = file_client.get(v_path)
+        points_v = np.frombuffer(
+            pts_bytes, dtype=np.float32, count=-1).reshape([-1, num_features])
+
         rect = calib['R0_rect']
         Trv2c = calib['Tr_velo_to_cam']
         P2 = calib['P2']
@@ -231,7 +245,8 @@ def create_waymo_info_file(data_path,
                            save_path=None,
                            relative_path=True,
                            max_sweeps=5,
-                           workers=8):
+                           num_workers=8,
+                           file_client_args=dict(backend='disk')):
     """Create info file of waymo dataset.
 
     Given the raw data, generate its related info file in pkl format.
@@ -246,11 +261,17 @@ def create_waymo_info_file(data_path,
             Default: True.
         max_sweeps (int, optional): Max sweeps before the detection frame
             to be used. Default: 5.
+        file_client_args (dict, optional): Config dict of file clients,
+            refer to
+            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
+            for more details. Defaults to dict(backend='disk').
     """
     imageset_folder = Path(data_path) / 'ImageSets'
     train_img_ids = _read_imageset_file(str(imageset_folder / 'train.txt'))
     val_img_ids = _read_imageset_file(str(imageset_folder / 'val.txt'))
     test_img_ids = _read_imageset_file(str(imageset_folder / 'test.txt'))
+    test_cam_only_img_ids = _read_imageset_file(
+        str(imageset_folder / 'test_cam_only.txt'))
 
     print('Generate info. this may take several minutes.')
     if save_path is None:
@@ -265,7 +286,8 @@ def create_waymo_info_file(data_path,
         pose=True,
         relative_path=relative_path,
         max_sweeps=max_sweeps,
-        num_worker=workers)
+        num_workers=num_workers,
+        file_client_args=file_client_args)
     waymo_infos_gatherer_test = WaymoInfoGatherer(
         data_path,
         training=False,
@@ -275,13 +297,15 @@ def create_waymo_info_file(data_path,
         pose=True,
         relative_path=relative_path,
         max_sweeps=max_sweeps,
-        num_worker=workers)
+        num_workers=num_workers,
+        file_client_args=file_client_args)
     num_points_in_gt_calculater = _NumPointsInGTCalculater(
         data_path,
         relative_path,
         num_features=6,
         remove_outside=False,
-        num_worker=workers)
+        num_workers=num_workers,
+        file_client_args=file_client_args)
 
     waymo_infos_train = waymo_infos_gatherer_trainval.gather(train_img_ids)
     num_points_in_gt_calculater.calculate(waymo_infos_train)
@@ -300,6 +324,11 @@ def create_waymo_info_file(data_path,
     filename = save_path / f'{pkl_prefix}_infos_test.pkl'
     print(f'Waymo info test file is saved to {filename}')
     mmcv.dump(waymo_infos_test, filename)
+    waymo_infos_test_cam_only = waymo_infos_gatherer_test.gather(
+        test_cam_only_img_ids)
+    filename = save_path / f'{pkl_prefix}_infos_test_cam_only.pkl'
+    print(f'Waymo info test_cam_only file is saved to {filename}')
+    mmcv.dump(waymo_infos_test_cam_only, filename)
 
 
 def _create_reduced_point_cloud(data_path,
@@ -408,7 +437,10 @@ def create_reduced_point_cloud(data_path,
             data_path, test_info_path, save_path, back=True)
 
 
-def export_2d_annotation(root_path, info_path, mono3d=True):
+def export_2d_annotation(root_path,
+                         info_path,
+                         mono3d=True,
+                         file_client_args=dict(backend='disk')):
     """Export 2d annotation from the info file and raw data.
 
     Args:
@@ -416,7 +448,12 @@ def export_2d_annotation(root_path, info_path, mono3d=True):
         info_path (str): Path of the info file.
         mono3d (bool, optional): Whether to export mono3d annotation.
             Default: True.
+        file_client_args (dict, optional): Config dict of file clients,
+            refer to
+            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
+            for more details. Defaults to dict(backend='disk').
     """
+    file_client = mmcv.FileClient(**file_client_args)
     # get bbox annotations for camera
     kitti_infos = mmcv.load(info_path)
     cat2Ids = [
@@ -425,12 +462,14 @@ def export_2d_annotation(root_path, info_path, mono3d=True):
     ]
     coco_ann_id = 0
     coco_2d_dict = dict(annotations=[], images=[], categories=cat2Ids)
+
     from os import path as osp
     for info in mmcv.track_iter_progress(kitti_infos):
         coco_infos = get_2d_boxes(info, occluded=[0, 1, 2, 3], mono3d=mono3d)
-        (height, width,
-         _) = mmcv.imread(osp.join(root_path,
-                                   info['image']['image_path'])).shape
+        img_bytes = file_client.get(
+            osp.join(root_path, info['image']['image_path']))
+        img = mmcv.imfrombytes(img_bytes, flag='color')
+        (height, width, _) = img.shape
         coco_2d_dict['images'].append(
             dict(
                 file_name=info['image']['image_path'],
@@ -529,7 +568,10 @@ def get_2d_boxes(info, occluded, mono3d=True):
                                     True).T[:, :2].tolist()
 
         # Keep only corners that fall within the image.
-        final_coords = post_process_coords(corner_coords)
+        final_coords = post_process_coords(
+            corner_coords,
+            imsize=(info['image']['image_shape'][1],
+                    info['image']['image_shape'][0]))
 
         # Skip if the convex hull of the re-projected corners
         # does not intersect the image canvas.

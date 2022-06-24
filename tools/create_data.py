@@ -14,7 +14,8 @@ def kitti_data_prep(root_path,
                     info_prefix,
                     version,
                     out_dir,
-                    with_plane=False):
+                    with_plane=False,
+                    file_client_args=dict(backend='disk')):
     """Prepare data related to Kitti dataset.
 
     Related data consists of '.pkl' files recording basic infos,
@@ -36,10 +37,14 @@ def kitti_data_prep(root_path,
     info_trainval_path = osp.join(root_path,
                                   f'{info_prefix}_infos_trainval.pkl')
     info_test_path = osp.join(root_path, f'{info_prefix}_infos_test.pkl')
-    kitti.export_2d_annotation(root_path, info_train_path)
-    kitti.export_2d_annotation(root_path, info_val_path)
-    kitti.export_2d_annotation(root_path, info_trainval_path)
-    kitti.export_2d_annotation(root_path, info_test_path)
+    kitti.export_2d_annotation(
+        root_path, info_train_path, file_client_args=file_client_args)
+    kitti.export_2d_annotation(
+        root_path, info_val_path, file_client_args=file_client_args)
+    kitti.export_2d_annotation(
+        root_path, info_trainval_path, file_client_args=file_client_args)
+    kitti.export_2d_annotation(
+        root_path, info_test_path, file_client_args=file_client_args)
 
     create_groundtruth_database(
         'KittiDataset',
@@ -152,7 +157,8 @@ def waymo_data_prep(root_path,
                     version,
                     out_dir,
                     workers,
-                    max_sweeps=5):
+                    max_sweeps=20,
+                    file_client_args=dict(backend='disk')):
     """Prepare the info file for waymo dataset.
 
     Args:
@@ -163,10 +169,16 @@ def waymo_data_prep(root_path,
         max_sweeps (int, optional): Number of input consecutive frames.
             Default: 5. Here we store pose information of these frames
             for later use.
+        file_client_args (dict, optional): Config dict of file clients,
+            refer to
+            https://github.com/open-mmlab/mmcv/blob/master/mmcv/fileio/file_client.py
+            for more details. Defaults to dict(backend='disk').
     """
     from tools.data_converter import waymo_converter as waymo
 
-    splits = ['training', 'validation', 'testing']
+    splits = [
+        'training', 'validation', 'testing', 'testing_3d_camera_only_detection'
+    ]
     for i, split in enumerate(splits):
         load_dir = osp.join(root_path, 'waymo_format', split)
         if split == 'validation':
@@ -178,12 +190,18 @@ def waymo_data_prep(root_path,
             save_dir,
             prefix=str(i),
             workers=workers,
-            test_mode=(split == 'testing'))
+            test_mode=(split
+                       in ['testing', 'testing_3d_camera_only_detection']),
+            file_client_args=file_client_args)
         converter.convert()
     # Generate waymo infos
     out_dir = osp.join(out_dir, 'kitti_format')
     kitti.create_waymo_info_file(
-        out_dir, info_prefix, max_sweeps=max_sweeps, workers=workers)
+        out_dir,
+        info_prefix,
+        max_sweeps=max_sweeps,
+        num_workers=workers,
+        file_client_args=file_client_args)
     GTDatabaseCreater(
         'WaymoDataset',
         out_dir,
@@ -223,6 +241,12 @@ parser.add_argument(
     default='./data/kitti',
     required=False,
     help='name of info pkl')
+parser.add_argument(
+    '--backend',
+    type=str,
+    default='disk',
+    required=False,
+    help='file backend for data loading')
 parser.add_argument('--extra-tag', type=str, default='kitti')
 parser.add_argument(
     '--workers', type=int, default=4, help='number of threads to be used')
@@ -230,6 +254,17 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     if args.dataset == 'kitti':
+        if args.backend == 'disk':
+            file_client_args = dict(backend='disk')
+        elif args.backend == 'petrel':
+            file_client_args = dict(
+                backend='petrel',
+                path_mapping=dict({
+                    './data/kitti/':
+                    's3://openmmlab/datasets/detection3d/kitti/',
+                    'data/kitti/':
+                    's3://openmmlab/datasets/detection3d/kitti/'
+                }))
         kitti_data_prep(
             root_path=args.root_path,
             info_prefix=args.extra_tag,
@@ -276,13 +311,25 @@ if __name__ == '__main__':
             version=test_version,
             max_sweeps=args.max_sweeps)
     elif args.dataset == 'waymo':
+        if args.backend == 'disk':
+            file_client_args = dict(backend='disk')
+        elif args.backend == 'petrel':
+            file_client_args = dict(
+                backend='petrel',
+                path_mapping=dict({
+                    './data/waymo/':
+                    's3://openmmlab/datasets/detection3d/waymo/',
+                    'data/waymo/':
+                    's3://openmmlab/datasets/detection3d/waymo/'
+                }))
         waymo_data_prep(
             root_path=args.root_path,
             info_prefix=args.extra_tag,
             version=args.version,
             out_dir=args.out_dir,
             workers=args.workers,
-            max_sweeps=args.max_sweeps)
+            max_sweeps=args.max_sweeps,
+            file_client_args=file_client_args)
     elif args.dataset == 'scannet':
         scannet_data_prep(
             root_path=args.root_path,
