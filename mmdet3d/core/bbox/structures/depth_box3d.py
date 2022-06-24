@@ -185,7 +185,7 @@ class DepthInstance3DBoxes(BaseInstance3DBoxes):
                 points.flip(bev_direction)
             return points
 
-    def convert_to(self, dst, rt_mat=None):
+    def convert_to(self, dst, rt_mat=None, correct_yaw=False):
         """Convert self to ``dst`` mode.
 
         Args:
@@ -203,7 +203,11 @@ class DepthInstance3DBoxes(BaseInstance3DBoxes):
         """
         from .box_3d_mode import Box3DMode
         return Box3DMode.convert(
-            box=self, src=Box3DMode.DEPTH, dst=dst, rt_mat=rt_mat)
+            box=self,
+            src=Box3DMode.DEPTH,
+            dst=dst,
+            rt_mat=rt_mat,
+            correct_yaw=False)
 
     def enlarged_box(self, extra_width):
         """Enlarge the length, width and height boxes.
