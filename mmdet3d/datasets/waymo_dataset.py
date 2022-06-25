@@ -10,9 +10,9 @@ import torch
 from mmcv.utils import print_log
 
 from mmdet3d.core import bbox3d2result, box3d_multiclass_nms, xywhr2xyxyr
-from mmdet.datasets import DATASETS
 from ..core.bbox import (Box3DMode, CameraInstance3DBoxes,
                          LiDARInstance3DBoxes, points_cam2img)
+from .builder import DATASETS
 from .kitti_dataset import KittiDataset
 from .utils import convert_annos, get_waymo_2d_boxes
 
