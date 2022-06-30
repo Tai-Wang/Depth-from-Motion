@@ -30,7 +30,7 @@ def kitti_data_prep(root_path,
             Default: False.
     """
     kitti.create_kitti_info_file(root_path, info_prefix, with_plane)
-    kitti.create_reduced_point_cloud(root_path, info_prefix)
+    # kitti.create_reduced_point_cloud(root_path, info_prefix)
 
     info_train_path = osp.join(root_path, f'{info_prefix}_infos_train.pkl')
     info_val_path = osp.join(root_path, f'{info_prefix}_infos_val.pkl')

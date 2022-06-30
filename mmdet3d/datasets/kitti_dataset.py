@@ -515,7 +515,6 @@ class KittiDataset(Custom3DDataset):
                                 loc[idx][2], anno['rotation_y'][idx],
                                 anno['score'][idx]),
                             file=f)
-
             annos[-1]['sample_idx'] = np.array(
                 [sample_idx] * len(annos[-1]['score']), dtype=np.int64)
 

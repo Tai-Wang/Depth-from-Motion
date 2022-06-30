@@ -10,10 +10,72 @@ from mmcv.utils import build_from_cfg
 
 from mmdet3d.core import VoxelGenerator
 from mmdet3d.core.bbox import (CameraInstance3DBoxes, DepthInstance3DBoxes,
-                               LiDARInstance3DBoxes, box_np_ops)
+                               LiDARInstance3DBoxes, box_np_ops,
+                               points_cam2img)
 from mmdet.datasets.pipelines import RandomCrop, RandomFlip, Resize
 from ..builder import OBJECTSAMPLERS, PIPELINES
 from .data_augment_utils import noise_per_object_v3_
+
+
+@PIPELINES.register_module()
+class GenerateAmodal2DBoxes(object):
+    """Generate amodal 2D boxes by projecting 3D ground truth boxes."""
+
+    def __init__(self):
+        pass
+
+    def __call__(self, input_dict):
+        # gt_bboxes_3d = input_dict['gt_bboxes_3d']
+        # pseudo lidar
+        # TODO: finish this function
+        pass
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        return repr_str
+
+
+@PIPELINES.register_module()
+class GenerateDepthMap(object):
+    """Generate depth map by projecting LiDAR points."""
+
+    def __init__(self, generate_fgmask=True):
+        self.generate_fgmask = generate_fgmask
+
+    def __call__(self, input_dict):
+        # Note: the input points should be not in the real lidar system
+        # instead it is in the pseudo lidar system
+        # which shares the same direction of xyz but different origin
+        pseudo_points = input_dict['points'][:, :3]
+        cam2img = input_dict['cam2img']
+        pseudo2cam_T = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
+                                dtype=np.float32)
+        homo_pseudo_points = np.concatenate(
+            [pseudo_points,
+             np.ones([pseudo_points.shape[0], 1])], axis=-1)
+        rect_points = homo_pseudo_points @ pseudo2cam_T
+        cam_points = points_cam2img(rect_points, cam2img, with_depth=True)
+        img_coords = cam_points[:, :2]
+        depths = cam_points[:, 2]
+        # TODO: check img_shape
+        depth_gt_img = np.zeros(input_dict['img_shape'], dtype=np.float32)
+        iy = np.round(img_coords[:, 1]).astype(np.int64)
+        ix = np.round(img_coords[:, 0]).astype(np.int64)
+        mask = (iy >= 0) & (ix >= 0) & (iy < depth_gt_img.shape[0]) & (
+            ix < depth_gt_img.shape[1])
+        iy, ix = iy[mask], ix[mask]
+        depth_gt_img[iy, ix] = depths[mask]
+        input_dict['depth_gt_img'] = depth_gt_img
+
+        if self.generate_fgmask:
+            # TODO: add pipeline for generating amodal 2D gt
+            assert 'amodal_gt_bboxes' in input_dict
+        return input_dict
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += f'(generate_fgmask={self.generate_fgmask}.'
+        return repr_str
 
 
 @PIPELINES.register_module()
@@ -741,7 +803,6 @@ class ObjectRangeFilter(object):
 
         Args:
             input_dict (dict): Result dict from loading pipeline.
-
         Returns:
             dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d'
                 keys are updated in the result dict.
@@ -774,6 +835,59 @@ class ObjectRangeFilter(object):
         """str: Return a string that describes the module."""
         repr_str = self.__class__.__name__
         repr_str += f'(point_cloud_range={self.pcd_range.tolist()})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class TruncatedObjectFilter(object):
+    """Filter truncated objects from the image views.
+
+    Args:
+        truncated_threshold (float): Truncated ratio threshold.
+        area_ratio_threshold (float): Area ratio threshold.
+        area_2d_ratio_threshold (float): 2D area ratio threshold.
+    """
+
+    def __init__(self,
+                 truncated_threshold,
+                 area_ratio_threshold=None,
+                 area_2d_ratio_threshold=None):
+        self.truncated_threshold = truncated_threshold
+        self.area_ratio_threshold = area_ratio_threshold
+        self.area_2d_ratio_threshold = area_2d_ratio_threshold
+        if (self.area_ratio_threshold
+                is not None) or (self.area_2d_ratio_threshold is not None):
+            warnings.warn(
+                'We do not support truncated object filter with ' +
+                'area_ratio_threshold and area_2d_ratio_threshold yet.' +
+                'These two factors take no effect right now.')
+
+    def __call__(self, input_dict):
+        """Call function to filter objects by the range.
+
+        Args:
+            input_dict (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d'
+                keys are updated in the result dict.
+        """
+        valid_mask = input_dict['truncated'] < self.truncated_threshold
+        for key in input_dict.keys():
+            # the only ann does correspond to each instance
+            if key == 'plane':
+                continue
+            input_dict[key] = input_dict[key][valid_mask]
+
+        return input_dict
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
+        repr_str += f'(truncated_threshold={self.truncated_threshold})'
+        repr_str += f'(area_ratio_threshold={self.area_ratio_threshold})'
+        repr_str += \
+            f'(area_2d_ratio_threshold={self.area_2d_ratio_threshold})'
         return repr_str
 
 
