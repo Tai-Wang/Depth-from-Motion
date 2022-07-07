@@ -35,7 +35,7 @@ def main():
         'backbone_3d.feature_backbone': 'backbone',
         'backbone_3d.feature_neck': 'neck',
         'backbone_3d.sem_neck': 'neck_2d',
-        'backbone_3d.rpn3d_convs': 'backbone_stereo.voxel_convs',
+        'backbone_3d.rpn3d_convs': 'feature_transformation.voxel_convs',
         'backbone_3d': 'backbone_stereo',
         'backbone_2d.rpn3d_conv2': 'backbone_3d.compress_conv',
         'backbone_2d.rpn3d_conv3': 'backbone_3d.bev_hourglass',
@@ -52,8 +52,6 @@ def main():
     for old_key in converted_ckpt.keys():
         if ('lidar_model' in old_key) or ('global_step' in old_key):
             DELETE_KEYS.append(old_key)
-    import pdb
-    pdb.set_trace()
     for delete_key in DELETE_KEYS:
         converted_ckpt.pop(delete_key)
 
@@ -66,12 +64,10 @@ def main():
                                           RENAME_PREFIX[rename_prefix])
                 RENAME_KEYS[new_key] = old_key
                 break  # avoid duplicate replace
-    pdb.set_trace()
+
     for new_key, old_key in RENAME_KEYS.items():
         converted_ckpt[new_key] = converted_ckpt.pop(old_key)
 
-    import pdb
-    pdb.set_trace()
     checkpoint['state_dict'] = converted_ckpt
     torch.save(checkpoint, args.out)
     # Check the converted checkpoint by loading to the model

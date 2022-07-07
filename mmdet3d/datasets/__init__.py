@@ -9,15 +9,16 @@ from .lyft_dataset import LyftDataset
 from .nuscenes_dataset import NuScenesDataset
 from .nuscenes_mono_dataset import NuScenesMonoDataset
 # yapf: disable
-from .pipelines import (AffineResize, BackgroundPointsFilter, GlobalAlignment,
-                        GlobalRotScaleTrans, IndoorPatchPointSample,
-                        IndoorPointSample, LoadAnnotations3D,
+from .pipelines import (AffineResize, BackgroundPointsFilter, DepthPipeline,
+                        GlobalAlignment, GlobalRotScaleTrans,
+                        IndoorPatchPointSample, IndoorPointSample,
+                        LoadAnnotations3D, LoadImageFromFileMono3D,
                         LoadPointsFromDict, LoadPointsFromFile,
                         LoadPointsFromMultiSweeps, NormalizePointsColor,
                         ObjectNameFilter, ObjectNoise, ObjectRangeFilter,
                         ObjectSample, PointSample, PointShuffle,
                         PointsRangeFilter, RandomDropPointsColor, RandomFlip3D,
-                        RandomJitterPoints, RandomShiftScale,
+                        RandomJitterPoints, RandomShiftScale, VideoPipeline,
                         VoxelBasedPointSampler)
 # yapf: enable
 from .s3dis_dataset import S3DISDataset, S3DISSegDataset
@@ -41,5 +42,6 @@ __all__ = [
     'LoadPointsFromMultiSweeps', 'WaymoDataset', 'BackgroundPointsFilter',
     'VoxelBasedPointSampler', 'get_loading_pipeline', 'RandomDropPointsColor',
     'RandomJitterPoints', 'ObjectNameFilter', 'AffineResize',
-    'RandomShiftScale', 'LoadPointsFromDict', 'PIPELINES'
+    'RandomShiftScale', 'LoadPointsFromDict', 'PIPELINES',
+    'LoadImageFromFileMono3D', 'DepthPipeline', 'VideoPipeline'
 ]

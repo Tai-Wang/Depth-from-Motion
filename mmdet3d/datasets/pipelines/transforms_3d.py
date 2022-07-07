@@ -46,7 +46,7 @@ class GenerateDepthMap(object):
         # Note: the input points should be not in the real lidar system
         # instead it is in the pseudo lidar system
         # which shares the same direction of xyz but different origin
-        pseudo_points = input_dict['points'][:, :3]
+        pseudo_points = (input_dict['points'].tensor)[:, :3].numpy()
         cam2img = input_dict['cam2img']
         pseudo2cam_T = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
                                 dtype=np.float32)
@@ -58,18 +58,19 @@ class GenerateDepthMap(object):
         img_coords = cam_points[:, :2]
         depths = cam_points[:, 2]
         # TODO: check img_shape
-        depth_gt_img = np.zeros(input_dict['img_shape'], dtype=np.float32)
+        depth_img = np.zeros(input_dict['pad_shape'][:2], dtype=np.float32)
         iy = np.round(img_coords[:, 1]).astype(np.int64)
         ix = np.round(img_coords[:, 0]).astype(np.int64)
-        mask = (iy >= 0) & (ix >= 0) & (iy < depth_gt_img.shape[0]) & (
-            ix < depth_gt_img.shape[1])
+        mask = (iy >= 0) & (ix >= 0) & (iy < depth_img.shape[0]) & (
+            ix < depth_img.shape[1])
         iy, ix = iy[mask], ix[mask]
-        depth_gt_img[iy, ix] = depths[mask]
-        input_dict['depth_gt_img'] = depth_gt_img
+        depth_img[iy, ix] = depths[mask]
+        input_dict['depth_img'] = depth_img
 
         if self.generate_fgmask:
             # TODO: add pipeline for generating amodal 2D gt
             assert 'amodal_gt_bboxes' in input_dict
+            raise NotImplementedError
         return input_dict
 
     def __repr__(self):
@@ -872,12 +873,14 @@ class TruncatedObjectFilter(object):
             dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d'
                 keys are updated in the result dict.
         """
-        valid_mask = input_dict['truncated'] < self.truncated_threshold
-        for key in input_dict.keys():
+        valid_mask = input_dict['ann_info'][
+            'truncated'] < self.truncated_threshold
+        for key in input_dict['ann_info'].keys():
             # the only ann does correspond to each instance
             if key == 'plane':
                 continue
-            input_dict[key] = input_dict[key][valid_mask]
+            input_dict['ann_info'][key] = input_dict['ann_info'][key][
+                valid_mask]
 
         return input_dict
 

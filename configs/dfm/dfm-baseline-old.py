@@ -1,14 +1,5 @@
 model = dict(
     type='DfM',
-    depth_cfg=dict(
-        mode='UD',
-        num_bins=288,
-        depth_min=2,
-        depth_max=59.6,
-        downsample_factor=4),
-    voxel_cfg=dict(
-        point_cloud_range=[2, -30.4, -3, 59.6, 30.4, 1],
-        voxel_size=[0.2, 0.2, 0.2]),
     backbone=dict(
         type='LIGAResNet',  # TODO: check liga setting
         depth=34,
@@ -41,25 +32,19 @@ model = dict(
     backbone_stereo=dict(
         type='DfMBackbone',
         in_channels=32,  # should be the same of stereo_channels[-1]
-        cv_channels=32,  # cost volume channels
+        num_3dconvs=1,  # num of 3d conv layers before hourglass
         num_hg=1,  # num of hourglass blocks
+        depth_cfg=dict(mode='UD', num_bins=288, depth_min=2, depth_max=59.6),
+        voxel_cfg=dict(
+            point_cloud_range=[2, -30.4, -3, 59.6, 30.4, 1],
+            voxel_size=[0.2, 0.2, 0.2]),
         downsample_factor=4,
-        norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
-    depth_head=dict(
-        type='DepthHead',
-        with_convs=False,
-        depth_cfg=dict(mode='UD', num_bins=288, min_depth=2, max_depth=59.6),
-        depth_loss=dict(type='ce', loss_weight=1.0),
-        downsample_factor=4,
-        num_views=1),
-    feature_transformation=dict(
-        type='FrustumToVoxel',
         sem_atten_feat=True,
         stereo_atten_feat=False,
-        num_3dconvs=1,  # num of 3d conv layers before hourglass
         cv_channels=32,  # cost volume channels
         out_channels=32,  # out volume channels after conv/pool
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
+    depth_head=None,
     backbone_3d=dict(
         type='BEVHourglass',
         in_channels=160,  # 160 = 32 * 5
@@ -153,20 +138,19 @@ file_client_args = dict(
 train_pipeline = [
     dict(type='LoadAnnotations3D'),
     dict(
-        type='LoadPointsFromFile',
-        coord_type='LIDAR',
-        load_dim=4,
-        use_dim=4,
-        file_client_args=file_client_args,
-        pseudo_lidar=True),
-    dict(
         type='VideoPipeline',
         num_ref_imgs=1,
-        random=True,  # TODO: turn on this choice during training
+        random=False,  # TODO: turn on this choice during training
         transforms=[
             dict(
                 type='LoadImageFromFileMono3D',
                 file_client_args=file_client_args),
+            dict(type='RandomFlip3D', flip_ratio_bev_horizontal=0.5),
+            dict(
+                type='Resize3D',
+                img_scale=[(1180, 356), (1304, 394)],
+                keep_ratio=True,
+                multiscale_mode='range'),
             dict(
                 type='RandomCrop3D',
                 crop_size=(320, 1280),
@@ -175,6 +159,13 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=4,
+        use_dim=4,
+        file_client_args=file_client_args,
+        pseudo_lidar=True),
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
@@ -189,6 +180,7 @@ test_pipeline = [
             dict(
                 type='LoadImageFromFileMono3D',
                 file_client_args=file_client_args),
+            dict(type='Resize3D', img_scale=(1242, 375), keep_ratio=True),
             dict(
                 type='RandomCrop3D',
                 crop_size=(320, 1280),

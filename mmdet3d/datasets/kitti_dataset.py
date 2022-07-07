@@ -199,18 +199,15 @@ class KittiDataset(Custom3DDataset):
         else:
             plane_lidar = None
 
-        if 'difficulty' in info['annos'].keys():
-            difficulty = info['annos']['difficulty']
-        else:
-            difficulty = None
-        truncated = info['annos']['truncated']
         annos = info['annos']
         # we need other objects to avoid collision when sample
         annos = self.remove_dontcare(annos)
         loc = annos['location']
         dims = annos['dimensions']
         rots = annos['rotation_y']
+        truncated = annos['truncated']
         gt_names = annos['name']
+
         gt_bboxes_3d = np.concatenate([loc, dims, rots[..., np.newaxis]],
                                       axis=1).astype(np.float32)
 
@@ -222,6 +219,11 @@ class KittiDataset(Custom3DDataset):
         selected = self.drop_arrays_by_name(gt_names, ['DontCare'])
         gt_bboxes = gt_bboxes[selected].astype('float32')
         gt_names = gt_names[selected]
+        truncated = truncated[selected]
+        if 'difficulty' in annos.keys():
+            difficulty = annos['difficulty'][selected]
+        else:
+            difficulty = None
 
         gt_labels = []
         for cat in gt_names:

@@ -2,8 +2,8 @@
 
 set -x
 
-CKPT_PATH=/mnt/cache/wangtai.vendor/mmdet3d-DfM/checkpoints
-PARTITION=labshare
+CKPT_PATH=/mnt/lustre/wangtai.vendor/mmdet3d-prerelease/work_dirs
+PARTITION=robot
 JOB_NAME=dfm
 TASK=dfm
 CONFIG=configs/dfm/dfm-baseline.py
@@ -23,7 +23,7 @@ srun -p ${PARTITION} -x ${XNODE}\
     --ntasks=${GPUS} \
     --ntasks-per-node=${GPUS_PER_NODE} \
     --kill-on-bad-exit=1 \
-    --quotatype=spot \
-    python -Xfaulthandler -u tools/test.py ${CONFIG} $CKPT --out ${WORK_DIR}/pseudo-lidar.pkl \
-    --eval mAP --options 'pklfile_prefix='${WORK_DIR}'/pseudo-lidar' --launcher='slurm' \
+    --quotatype=auto \
+    python -Xfaulthandler -u tools/test.py ${CONFIG} $CKPT --out ${WORK_DIR}/refactor.pkl \
+    --eval mAP --options 'pklfile_prefix='${WORK_DIR}'/refactor' --launcher='slurm' \
     2>&1 | tee logs/${TASK}/logs_tee.txt

@@ -6,9 +6,9 @@ import numpy as np
 from pyquaternion import Quaternion
 
 from mmdet3d.core.points import BasePoints, get_points_type
-from mmdet.datasets.pipelines import (Compose, LoadAnnotations,
-                                      LoadImageFromFile)
+from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 from ..builder import PIPELINES
+from .compose import Compose
 
 
 @PIPELINES.register_module()
@@ -360,6 +360,33 @@ class LoadDepthFromFile(object):
 
 
 @PIPELINES.register_module()
+class LoadImageFromFileMono3D(LoadImageFromFile):
+    """Load an image from file in monocular 3D object detection. Compared to 2D
+    detection, additional camera parameters need to be loaded.
+
+    Args:
+        kwargs (dict): Arguments are the same as those in
+            :class:`LoadImageFromFile`.
+    """
+
+    def __call__(self, results):
+        """Call functions to load image and get image meta information.
+
+        Args:
+            results (dict): Result dict from :obj:`mmdet.CustomDataset`.
+
+        Returns:
+            dict: The dict contains loaded image and meta information.
+        """
+        super().__call__(results)
+        if 'cam2img' not in results.keys():  # Mono3D dataset class
+            results['cam2img'] = results['img_info']['cam_intrinsic']
+        # save the original cam2img before augmentation
+        results['ori_cam2img'] = copy.deepcopy(results['cam2img'])
+        return results
+
+
+@PIPELINES.register_module()
 class VideoPipeline(object):
     """Load and transform multi-frame images.
 
@@ -509,33 +536,6 @@ class VideoPipeline(object):
         repr_str += f'(transforms={self.transforms}, '
         repr_str += f'num_ref_imgs={self.num_ref_imgs})'
         return repr_str
-
-
-@PIPELINES.register_module()
-class LoadImageFromFileMono3D(LoadImageFromFile):
-    """Load an image from file in monocular 3D object detection. Compared to 2D
-    detection, additional camera parameters need to be loaded.
-
-    Args:
-        kwargs (dict): Arguments are the same as those in
-            :class:`LoadImageFromFile`.
-    """
-
-    def __call__(self, results):
-        """Call functions to load image and get image meta information.
-
-        Args:
-            results (dict): Result dict from :obj:`mmdet.CustomDataset`.
-
-        Returns:
-            dict: The dict contains loaded image and meta information.
-        """
-        super().__call__(results)
-        if 'cam2img' not in results.keys():  # Mono3D dataset class
-            results['cam2img'] = results['img_info']['cam_intrinsic']
-        # save the original cam2img before augmentation
-        results['ori_cam2img'] = copy.deepcopy(results['cam2img'])
-        return results
 
 
 @PIPELINES.register_module()

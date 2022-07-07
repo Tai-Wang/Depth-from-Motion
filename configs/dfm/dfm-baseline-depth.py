@@ -38,6 +38,13 @@ model = dict(
         cat_img_feature=True,
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
     bbox_head_2d=None,
+    neck_2d=dict(
+        type='FPN',
+        in_channels=[32],  # should be the same of sem_channels[-1]
+        out_channels=64,
+        start_level=0,
+        add_extra_convs='on_output',
+        num_outs=5),
     backbone_stereo=dict(
         type='DfMBackbone',
         in_channels=32,  # should be the same of stereo_channels[-1]
@@ -175,10 +182,14 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
+    # dict(type='GenerateAmodal2DBoxes'),
+    dict(type='GenerateDepthMap', generate_fgmask=False),
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
-    dict(type='Collect3D', keys=['img', 'gt_bboxes_3d', 'gt_labels_3d'])
+    dict(
+        type='Collect3D',
+        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img'])
 ]
 test_pipeline = [
     dict(
@@ -263,7 +274,7 @@ log_config = dict(
 evaluation = dict(interval=1)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = None
+load_from = '/mnt/lustre/wangtai.vendor/mmdet3d-prerelease/work_dirs/dfm/mmdet3d-dfm.pth'  # noqa
 resume_from = None
 workflow = [('train', 1)]
 find_unused_parameters = True  # only stereo neck feats are used
