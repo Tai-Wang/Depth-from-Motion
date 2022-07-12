@@ -48,16 +48,17 @@ class DefaultFormatBundle(object):
             else:
                 img = np.ascontiguousarray(results['img'].transpose(2, 0, 1))
                 results['img'] = DC(to_tensor(img), stack=True)
-        if 'depth_img' in results:
-            if isinstance(results['depth_img'], list):
-                # process multiple imgs in single frame
-                depth_imgs = np.ascontiguousarray(
-                    np.stack(results['depth_img'], axis=0))
-                results['depth_img'] = DC(to_tensor(depth_imgs), stack=True)
-            else:
-                depth_img = np.ascontiguousarray(
-                    results['depth_img'][:, :, np.newaxis].transpose(2, 0, 1))
-                results['depth_img'] = DC(to_tensor(depth_img), stack=True)
+        for key in ['depth_img', 'depth_fgmask_img']:
+            if key in results:
+                if isinstance(results[key], list):
+                    # process multiple imgs in single frame
+                    depth_imgs = np.ascontiguousarray(
+                        np.stack(results[key], axis=0))
+                    results[key] = DC(to_tensor(depth_imgs), stack=True)
+                else:
+                    depth_img = np.ascontiguousarray(
+                        results[key][:, :, np.newaxis].transpose(2, 0, 1))
+                    results[key] = DC(to_tensor(depth_img), stack=True)
         for key in [
                 'proposals', 'gt_bboxes', 'gt_bboxes_ignore', 'gt_labels',
                 'gt_labels_3d', 'attr_labels', 'pts_instance_mask',

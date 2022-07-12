@@ -17,9 +17,9 @@ model = dict(
         dilations=(1, 1, 2, 4),  # sem [1, 1, 1, 1]
         out_indices=(0, 1, 2, 3),
         style='pytorch',
-        frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
-        norm_eval=False,  # sem: True
+        frozen_stages=1,
+        norm_cfg=dict(type='BN', requires_grad=False),
+        norm_eval=True,  # sem: True
         with_max_pool=False,
         block_with_final_relu=False,  # sem: True
         num_channels_factor=(1, 2, 2, 2),  # sem [1, 2, 4, 8]
@@ -38,13 +38,6 @@ model = dict(
         cat_img_feature=True,
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
     bbox_head_2d=None,
-    neck_2d=dict(
-        type='FPN',
-        in_channels=[32],  # should be the same of sem_channels[-1]
-        out_channels=64,
-        start_level=0,
-        add_extra_convs='on_output',
-        num_outs=5),
     backbone_stereo=dict(
         type='DfMBackbone',
         in_channels=32,  # should be the same of stereo_channels[-1]
@@ -188,14 +181,10 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
-    # dict(type='GenerateAmodal2DBoxes'),
-    dict(type='GenerateDepthMap', generate_fgmask=False),
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
-    dict(
-        type='Collect3D',
-        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img'])
+    dict(type='Collect3D', keys=['img', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
 test_pipeline = [
     dict(
@@ -261,18 +250,18 @@ data = dict(
         test_mode=True,
         pseudo_lidar=True))
 
-optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
+optimizer = dict(
+    type='AdamW',
+    lr=0.0001,
+    weight_decay=0.0001,
+    paramwise_cfg=dict(
+        custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
 # although grad_clip is set in original code, it is not used
-optimizer_config = dict(grad_clip=None)
+optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # learning policy
-lr_config = dict(
-    policy='step',
-    warmup='linear',  # cosine in original implementation
-    warmup_iters=500,  # 464 for original implementation
-    warmup_ratio=0.1,
-    step=[25])
-total_epochs = 30
+lr_config = dict(policy='step', step=[8, 11])
+total_epochs = 12
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)
 
 checkpoint_config = dict(interval=1, max_keep_ckpts=1)

@@ -17,9 +17,9 @@ model = dict(
         dilations=(1, 1, 2, 4),  # sem [1, 1, 1, 1]
         out_indices=(0, 1, 2, 3),
         style='pytorch',
-        frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
-        norm_eval=False,  # sem: True
+        frozen_stages=1,
+        norm_cfg=dict(type='BN', requires_grad=False),
+        norm_eval=True,  # sem: True
         with_max_pool=False,
         block_with_final_relu=False,  # sem: True
         num_channels_factor=(1, 2, 2, 2),  # sem [1, 2, 4, 8]
@@ -174,12 +174,6 @@ train_pipeline = [
             dict(
                 type='LoadImageFromFileMono3D',
                 file_client_args=file_client_args),
-            dict(type='RandomFlip3D', flip_ratio_bev_horizontal=0.5),
-            dict(
-                type='Resize3D',
-                img_scale=[(1180, 356), (1304, 394)],
-                keep_ratio=True,
-                multiscale_mode='range'),
             dict(
                 type='RandomCrop3D',
                 crop_size=(320, 1280),
@@ -261,18 +255,18 @@ data = dict(
         test_mode=True,
         pseudo_lidar=True))
 
-optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
+optimizer = dict(
+    type='AdamW',
+    lr=0.0001,
+    weight_decay=0.0001,
+    paramwise_cfg=dict(
+        custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
 # although grad_clip is set in original code, it is not used
-optimizer_config = dict(grad_clip=None)
+optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # learning policy
-lr_config = dict(
-    policy='step',
-    warmup='linear',  # cosine in original implementation
-    warmup_iters=500,  # 464 for original implementation
-    warmup_ratio=0.1,
-    step=[25])
-total_epochs = 30
+lr_config = dict(policy='step', step=[8, 11])
+total_epochs = 12
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)
 
 checkpoint_config = dict(interval=1, max_keep_ckpts=1)

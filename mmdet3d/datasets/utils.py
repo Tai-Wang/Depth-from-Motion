@@ -5,10 +5,13 @@ from collections import OrderedDict
 
 import mmcv
 import numpy as np
+import torch
+from mmcv.ops.points_in_boxes import points_in_boxes_cpu
 from nuscenes.utils.geometry_utils import view_points
 from shapely.geometry import MultiPoint, box
 
-from mmdet3d.core.bbox import Box3DMode, CameraInstance3DBoxes, box_np_ops
+from mmdet3d.core.bbox import (Box3DMode, CameraInstance3DBoxes, box_np_ops,
+                               points_img2cam)
 from mmdet3d.datasets.pipelines import (Collect3D, DefaultFormatBundle3D,
                                         LoadAnnotations3D,
                                         LoadImageFromFileMono3D,
@@ -388,3 +391,64 @@ def convert_annos(info, cam_idx):
     converted_annos['dimensions'] = gt_bboxes_3d[:, 3:6]
     converted_annos['rotation_y'] = gt_bboxes_3d[:, 6]
     return converted_annos
+
+
+def check_numpy_to_torch(x):
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x).float(), True
+    return x, False
+
+
+def depth_map_in_boxes_cpu(depth_map,
+                           boxes,
+                           cam2img,
+                           expand_ratio=1.0,
+                           expand_distance=0.):
+    """boxes should be in lidar format."""
+    mask = depth_map > 0
+    u = np.arange(depth_map.shape[1])
+    v = np.arange(depth_map.shape[0])
+    u, v = np.meshgrid(u, v)
+    img_pts = np.stack([u[mask], v[mask], depth_map[mask]], axis=1)
+    rect_pts = points_img2cam(img_pts, cam2img)
+    rect_pts = np.hstack(
+        (rect_pts, np.ones((rect_pts.shape[0], 1), dtype=np.float32)))
+    T = np.array([[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]],
+                 dtype=np.float32)
+    pts = np.dot(rect_pts, np.linalg.inv(T))[:, :3]
+    fgmask_img = np.zeros(depth_map.shape[:2], dtype=np.int32)
+    if boxes.shape[0] > 0:
+        boxes = boxes.copy()
+        boxes[:, [3, 4, 5]] *= expand_ratio
+        boxes[:, [3, 4, 5]] += expand_distance
+        point_in_boxes_ids = points_in_boxes_cpu_idmap(pts, boxes)
+        fgmask_img[mask] = point_in_boxes_ids + 1
+    return fgmask_img
+
+
+def points_in_boxes_cpu_idmap(points, boxes):
+    if len(boxes.shape) == 2 and len(points.shape) == 2:
+        single_batch = True
+    points, is_numpy = check_numpy_to_torch(points)
+    boxes, is_numpy = check_numpy_to_torch(boxes)
+
+    if len(boxes) > 0 and len(points) > 0:
+        # points_in_boxes_cpu in mmcv outputs the point_indices
+        # in shape (num_points, num_boxes)
+        # so transpose here
+        if single_batch:
+            point_indices = points_in_boxes_cpu(points[None],
+                                                boxes[None])[0].transpose(
+                                                    0, 1)
+        else:
+            raise NotImplementedError
+        point_indices[point_indices == 0] = -1
+        for i in range(boxes.shape[0]):
+            point_indices[i, point_indices[i] == 1] = i
+        point_indices = point_indices.max(0).values
+    else:
+        point_indices = np.empty([len(points)], dtype=np.int32)
+        point_indices[:] = -1
+        point_indices = torch.from_numpy(point_indices)
+
+    return point_indices.numpy() if is_numpy else point_indices

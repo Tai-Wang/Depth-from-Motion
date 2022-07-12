@@ -1,14 +1,5 @@
 model = dict(
     type='DfM',
-    depth_cfg=dict(
-        mode='UD',
-        num_bins=288,
-        depth_min=2,
-        depth_max=59.6,
-        downsample_factor=4),
-    voxel_cfg=dict(
-        point_cloud_range=[2, -30.4, -3, 59.6, 30.4, 1],
-        voxel_size=[0.2, 0.2, 0.2]),
     backbone=dict(
         type='LIGAResNet',  # TODO: check liga setting
         depth=34,
@@ -38,35 +29,22 @@ model = dict(
         cat_img_feature=True,
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
     bbox_head_2d=None,
-    neck_2d=dict(
-        type='FPN',
-        in_channels=[32],  # should be the same of sem_channels[-1]
-        out_channels=64,
-        start_level=0,
-        add_extra_convs='on_output',
-        num_outs=5),
     backbone_stereo=dict(
         type='DfMBackbone',
         in_channels=32,  # should be the same of stereo_channels[-1]
-        cv_channels=32,  # cost volume channels
+        num_3dconvs=1,  # num of 3d conv layers before hourglass
         num_hg=1,  # num of hourglass blocks
+        depth_cfg=dict(mode='UD', num_bins=288, depth_min=2, depth_max=59.6),
+        voxel_cfg=dict(
+            point_cloud_range=[2, -30.4, -3, 59.6, 30.4, 1],
+            voxel_size=[0.2, 0.2, 0.2]),
         downsample_factor=4,
-        norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
-    depth_head=dict(
-        type='DepthHead',
-        with_convs=False,
-        depth_cfg=dict(mode='UD', num_bins=288, min_depth=2, max_depth=59.6),
-        depth_loss=dict(type='ce', loss_weight=1.0),
-        downsample_factor=4,
-        num_views=1),
-    feature_transformation=dict(
-        type='FrustumToVoxel',
         sem_atten_feat=True,
         stereo_atten_feat=False,
-        num_3dconvs=1,  # num of 3d conv layers before hourglass
         cv_channels=32,  # cost volume channels
         out_channels=32,  # out volume channels after conv/pool
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
+    depth_head=None,
     backbone_3d=dict(
         type='BEVHourglass',
         in_channels=160,  # 160 = 32 * 5
@@ -143,7 +121,7 @@ class_names = ['Car', 'Pedestrian',
 input_modality = dict(use_lidar=False, use_camera=True)
 point_cloud_range = [2, -30.4, -3, 59.6, 30.4, 1]
 img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
 # file_client_args = dict(backend='disk')
 # Uncomment the following if use ceph or other file clients.
 # See https://mmcv.readthedocs.io/en/latest/api.html#mmcv.fileio.FileClient
@@ -160,16 +138,9 @@ file_client_args = dict(
 train_pipeline = [
     dict(type='LoadAnnotations3D'),
     dict(
-        type='LoadPointsFromFile',
-        coord_type='LIDAR',
-        load_dim=4,
-        use_dim=4,
-        file_client_args=file_client_args,
-        pseudo_lidar=True),
-    dict(
         type='VideoPipeline',
         num_ref_imgs=1,
-        random=True,  # TODO: turn on this choice during training
+        random=False,  # TODO: turn on this choice during training
         transforms=[
             dict(
                 type='LoadImageFromFileMono3D',
@@ -188,14 +159,17 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
-    # dict(type='GenerateAmodal2DBoxes'),
-    dict(type='GenerateDepthMap', generate_fgmask=False),
+    dict(
+        type='LoadPointsFromFile',
+        coord_type='LIDAR',
+        load_dim=4,
+        use_dim=4,
+        file_client_args=file_client_args,
+        pseudo_lidar=True),
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
-    dict(
-        type='Collect3D',
-        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img'])
+    dict(type='Collect3D', keys=['img', 'gt_bboxes_3d', 'gt_labels_3d'])
 ]
 test_pipeline = [
     dict(
@@ -206,6 +180,7 @@ test_pipeline = [
             dict(
                 type='LoadImageFromFileMono3D',
                 file_client_args=file_client_args),
+            dict(type='Resize3D', img_scale=(1242, 375), keep_ratio=True),
             dict(
                 type='RandomCrop3D',
                 crop_size=(320, 1280),
@@ -236,8 +211,7 @@ data = dict(
             pipeline=train_pipeline,
             modality=input_modality,
             classes=class_names,
-            test_mode=False,
-            pseudo_lidar=True)),
+            test_mode=False)),
     val=dict(
         type=dataset_type,
         data_root=data_root,
@@ -247,8 +221,7 @@ data = dict(
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
-        test_mode=True,
-        pseudo_lidar=True),
+        test_mode=True),
     test=dict(
         type=dataset_type,
         data_root=data_root,
@@ -258,8 +231,7 @@ data = dict(
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
-        test_mode=True,
-        pseudo_lidar=True))
+        test_mode=True))
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 # although grad_clip is set in original code, it is not used

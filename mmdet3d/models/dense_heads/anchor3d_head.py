@@ -213,8 +213,6 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
             tuple[torch.Tensor]: Losses of class, bbox
                 and direction, respectively.
         """
-        import pdb
-        pdb.set_trace()
         # classification loss
         if num_total_samples is None:
             num_total_samples = int(cls_score.shape[0])
@@ -360,8 +358,6 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
             num_total_pos + num_total_neg if self.sampling else num_total_pos)
 
         # num_total_samples = None
-        import pdb
-        pdb.set_trace()
         losses_cls, losses_bbox, losses_dir = multi_apply(
             self.loss_single,
             cls_scores,

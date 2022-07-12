@@ -30,6 +30,7 @@ class LIGAAnchor3DHead(Anchor3DHead):
             self.cls_convs = []
             self.reg_convs = []
             for _ in range(self.num_convs):
+
                 self.cls_convs.append(
                     nn.Sequential(
                         convbn(

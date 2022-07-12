@@ -240,9 +240,8 @@ class DfM(BaseDetector):
                       gt_bboxes_3d,
                       gt_labels_3d,
                       depth_img=None,
+                      depth_fgmask_img=None,
                       **kwargs):
-        import pdb
-        pdb.set_trace()
         mono_stereo_costs, stereo_feats, mono_feats, cur_sem_feat = \
             self.extract_feat(img, img_metas)
 
@@ -267,7 +266,8 @@ class DfM(BaseDetector):
                 depth_preds.flatten(start_dim=0, end_dim=1),
                 upsample_costs.flatten(start_dim=0, end_dim=1),
                 depth_img.flatten(start_dim=0, end_dim=1),
-                depth_fgmask_imgs=None)
+                depth_fgmask_img=depth_fgmask_img.flatten(
+                    start_dim=0, end_dim=1))
             losses['loss_dense_depth'] = loss_depth
         return losses
 

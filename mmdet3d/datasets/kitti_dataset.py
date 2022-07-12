@@ -63,6 +63,7 @@ class KittiDataset(Custom3DDataset):
                  classes=None,
                  modality=None,
                  box_type_3d='LiDAR',
+                 pseudo_lidar=False,
                  filter_empty_gt=True,
                  test_mode=False,
                  pcd_limit_range=[0, -40, -3, 70.4, 40, 0.0],
@@ -83,6 +84,7 @@ class KittiDataset(Custom3DDataset):
         assert self.modality is not None
         self.pcd_limit_range = pcd_limit_range
         self.pts_prefix = pts_prefix
+        self.pseudo_lidar = pseudo_lidar
 
     def _get_pts_filename(self, idx):
         """Get point cloud filename according to the given index.
@@ -212,8 +214,12 @@ class KittiDataset(Custom3DDataset):
                                       axis=1).astype(np.float32)
 
         # convert gt_bboxes_3d to velodyne coordinates
-        gt_bboxes_3d = CameraInstance3DBoxes(gt_bboxes_3d).convert_to(
-            self.box_mode_3d, np.linalg.inv(rect @ Trv2c))
+        if self.pseudo_lidar:
+            gt_bboxes_3d = CameraInstance3DBoxes(gt_bboxes_3d).convert_to(
+                self.box_mode_3d, None)
+        else:
+            gt_bboxes_3d = CameraInstance3DBoxes(gt_bboxes_3d).convert_to(
+                self.box_mode_3d, np.linalg.inv(rect @ Trv2c))
         gt_bboxes = annos['bbox']
 
         selected = self.drop_arrays_by_name(gt_names, ['DontCare'])
@@ -687,7 +693,7 @@ class KittiDataset(Custom3DDataset):
         P2 = box_preds.tensor.new_tensor(P2)
 
         # support pseudo-lidar mode for vision-based BEV methods
-        if box_dict.get('pseudo_lidar', False):
+        if self.pseudo_lidar:
             box_preds_camera = box_preds.convert_to(Box3DMode.CAM, None)
         else:
             box_preds_camera = box_preds.convert_to(Box3DMode.CAM,

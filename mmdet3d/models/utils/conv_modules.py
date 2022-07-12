@@ -20,7 +20,7 @@ def convbn(in_planes,
             padding=dilation if dilation > 1 else pad,
             dilation=dilation,
             bias=False),
-        nn.BatchNorm2d(out_planes) if not gn else nn.GroupNorm(
+        nn.SyncBatchNorm(out_planes) if not gn else nn.GroupNorm(
             groups, out_planes))
 
 
@@ -39,7 +39,7 @@ def convbn_3d(in_planes,
             padding=pad,
             stride=stride,
             bias=False),
-        nn.BatchNorm3d(out_planes) if not gn else nn.GroupNorm(
+        nn.SyncBatchNorm(out_planes) if not gn else nn.GroupNorm(
             groups, out_planes))
 
 

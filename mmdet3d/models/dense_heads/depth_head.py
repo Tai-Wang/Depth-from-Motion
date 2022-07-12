@@ -76,7 +76,7 @@ class DepthHead(nn.Module):
              depth_preds,
              depth_volumes,
              depth_img,
-             depth_fgmask_imgs=None):
+             depth_fgmask_img=None):
         """
         Args:
             depth_preds: [B*N, H, W]
@@ -88,9 +88,9 @@ class DepthHead(nn.Module):
         assert len(depth_preds) == len(depth_volumes)
         mask = (depth_img > self.min_depth) & (depth_img < self.max_depth)
         gt = depth_img[mask]
-        # depth_fgmask_imgs is a fg_mask with box_id
-        if depth_fgmask_imgs is not None:
-            fg_mask = depth_fgmask_imgs[mask].bool()
+        # depth_fgmask_img is a fg_mask with box_id
+        if depth_fgmask_img is not None:
+            fg_mask = depth_fgmask_img[mask].bool()
         depth_interval = depth_samples[1] - depth_samples[0]
 
         # only support one-level depth loss and one type of loss

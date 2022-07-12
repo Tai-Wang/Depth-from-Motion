@@ -143,7 +143,7 @@ class_names = ['Car', 'Pedestrian',
 input_modality = dict(use_lidar=False, use_camera=True)
 point_cloud_range = [2, -30.4, -3, 59.6, 30.4, 1]
 img_norm_cfg = dict(
-    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
+    mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
 # file_client_args = dict(backend='disk')
 # Uncomment the following if use ceph or other file clients.
 # See https://mmcv.readthedocs.io/en/latest/api.html#mmcv.fileio.FileClient
@@ -236,8 +236,7 @@ data = dict(
             pipeline=train_pipeline,
             modality=input_modality,
             classes=class_names,
-            test_mode=False,
-            pseudo_lidar=True)),
+            test_mode=False)),
     val=dict(
         type=dataset_type,
         data_root=data_root,
@@ -247,8 +246,7 @@ data = dict(
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
-        test_mode=True,
-        pseudo_lidar=True),
+        test_mode=True),
     test=dict(
         type=dataset_type,
         data_root=data_root,
@@ -258,8 +256,7 @@ data = dict(
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
-        test_mode=True,
-        pseudo_lidar=True))
+        test_mode=True))
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 # although grad_clip is set in original code, it is not used

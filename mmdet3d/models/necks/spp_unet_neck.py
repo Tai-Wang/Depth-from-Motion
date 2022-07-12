@@ -44,15 +44,19 @@ class SPPUNetNeck(nn.Module):
             for s in [(64, 64), (32, 32), (16, 16), (8, 8)]
         ])
         """
-        TODO: replace with
         from mmcv.cnn import ConvModule
-        ConvModule(
+        self.spp_branches = nn.ModuleList([
+            nn.Sequential(
+                nn.AvgPool2d(s, stride=s),
+                ConvModule(
                     self.in_channels[-1],
                     self.spp_channel,
                     kernel_size=1,
                     stride=1,
                     padding=0,
-                    norm_cfg=norm_cfg)
+                    norm_cfg=norm_cfg))
+            for s in [(64, 64), (32, 32), (16, 16), (8, 8)]
+        ])
         """
 
         concat_channel = self.spp_channel * len(self.spp_branches) + sum(

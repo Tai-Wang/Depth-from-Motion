@@ -18,7 +18,7 @@ model = dict(
         out_indices=(0, 1, 2, 3),
         style='pytorch',
         frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
+        norm_cfg=dict(type='SyncBN', requires_grad=True),
         norm_eval=False,  # sem: True
         with_max_pool=False,
         block_with_final_relu=False,  # sem: True
@@ -263,8 +263,8 @@ data = dict(
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 # although grad_clip is set in original code, it is not used
-optimizer_config = dict(grad_clip=None)
-# optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
+# optimizer_config = dict(grad_clip=None)
+optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # learning policy
 lr_config = dict(
     policy='step',

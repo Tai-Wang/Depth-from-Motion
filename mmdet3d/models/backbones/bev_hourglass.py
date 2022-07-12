@@ -28,6 +28,7 @@ class BEVHourglass(BaseModule):
         self.compress_conv = nn.Sequential(
             convbn(in_channels, out_channels, 3, 1, 1, 1, gn=True),
             nn.ReLU(inplace=True))
+
         self.bev_hourglass = hourglass2d(self.out_channels, gn=True)
         self.num_bev_features = self.out_channels
 

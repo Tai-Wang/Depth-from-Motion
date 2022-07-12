@@ -14,6 +14,7 @@ from mmdet3d.core.bbox import (CameraInstance3DBoxes, DepthInstance3DBoxes,
                                points_cam2img)
 from mmdet.datasets.pipelines import RandomCrop, RandomFlip, Resize
 from ..builder import OBJECTSAMPLERS, PIPELINES
+from ..utils import depth_map_in_boxes_cpu
 from .data_augment_utils import noise_per_object_v3_
 
 
@@ -69,8 +70,12 @@ class GenerateDepthMap(object):
 
         if self.generate_fgmask:
             # TODO: add pipeline for generating amodal 2D gt
-            assert 'amodal_gt_bboxes' in input_dict
-            raise NotImplementedError
+            input_dict['depth_fgmask_img'] = depth_map_in_boxes_cpu(
+                input_dict['depth_img'],
+                input_dict['gt_bboxes_3d'].tensor.cpu().numpy()[:, :7],
+                cam2img,
+                expand_distance=0.,
+                expand_ratio=1.0)
         return input_dict
 
     def __repr__(self):
@@ -194,19 +199,20 @@ class RandomFlip3D(RandomFlip):
                     direction, points=input_dict['points'])
             else:
                 input_dict[key].flip(direction)
+        # TODO: use img_shape or ori_shape according to the order of augs
+        w = input_dict['img_shape'][1]
+        # need to modify the horizontal position of camera center
+        # along u-axis in the image (flip like centers2d)
+        # ['cam2img'][0][2] = c_u
+        # see more details and examples at
+        # https://github.com/open-mmlab/mmdetection3d/pull/744
+        if 'cam2img' in input_dict:
+            input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
         if 'centers2d' in input_dict:
             assert self.sync_2d is True and direction == 'horizontal', \
                 'Only support sync_2d=True and horizontal flip with images'
-            # TODO: use img_shape or ori_shape according to the order of augs
-            w = input_dict['img_shape'][1]
             input_dict['centers2d'][..., 0] = \
                 w - input_dict['centers2d'][..., 0]
-            # need to modify the horizontal position of camera center
-            # along u-axis in the image (flip like centers2d)
-            # ['cam2img'][0][2] = c_u
-            # see more details and examples at
-            # https://github.com/open-mmlab/mmdetection3d/pull/744
-            input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
 
     def __call__(self, input_dict):
         """Call function to flip points, values in the ``bbox3d_fields`` and

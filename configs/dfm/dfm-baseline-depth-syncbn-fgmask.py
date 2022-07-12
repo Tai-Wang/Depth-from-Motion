@@ -18,7 +18,7 @@ model = dict(
         out_indices=(0, 1, 2, 3),
         style='pytorch',
         frozen_stages=-1,
-        norm_cfg=dict(type='BN', requires_grad=True),
+        norm_cfg=dict(type='SyncBN', requires_grad=True),
         norm_eval=False,  # sem: True
         with_max_pool=False,
         block_with_final_relu=False,  # sem: True
@@ -56,7 +56,13 @@ model = dict(
         type='DepthHead',
         with_convs=False,
         depth_cfg=dict(mode='UD', num_bins=288, min_depth=2, max_depth=59.6),
-        depth_loss=dict(type='ce', loss_weight=1.0),
+        depth_loss=dict(
+            type='balanced_focal',
+            loss_weight=1.0,
+            fg_weight=5,
+            bg_weight=1,
+            alpha=1,
+            gamma=2),
         downsample_factor=4,
         num_views=1),
     feature_transformation=dict(
@@ -188,14 +194,16 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
-    # dict(type='GenerateAmodal2DBoxes'),
-    dict(type='GenerateDepthMap', generate_fgmask=False),
+    dict(type='GenerateDepthMap', generate_fgmask=True),
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D',
-        keys=['img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img'])
+        keys=[
+            'img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img',
+            'depth_fgmask_img'
+        ])
 ]
 test_pipeline = [
     dict(

@@ -4,9 +4,9 @@ set -x
 
 CKPT_PATH=/mnt/lustre/wangtai.vendor/mmdet3d-prerelease/work_dirs
 PARTITION=robot
-JOB_NAME=dfm
-TASK=dfm
-CONFIG=configs/dfm/dfm-baseline.py
+JOB_NAME=dfm-lq
+TASK=dfm-lq
+CONFIG=configs/dfm/dfm-baseline-lq.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/mmdet3d-dfm.pth
 GPUS=8
