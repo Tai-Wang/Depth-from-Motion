@@ -71,10 +71,15 @@ class SPPUNetNeck(nn.Module):
         else:
             stereo_channel = concat_channel
             assert self.start_level >= 1
-
+        """
         self.lastconv = nn.Sequential(
-            convbn(stereo_channel, self.stereo_channels[0], 3, 1, 1, gn=True),
-            nn.ReLU(inplace=True),
+            ConvModule(
+                stereo_channel,
+                self.stereo_channels[0],
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                norm_cfg=norm_cfg),
             nn.Conv2d(
                 self.stereo_channels[0],
                 self.stereo_channels[1],
@@ -82,15 +87,6 @@ class SPPUNetNeck(nn.Module):
                 padding=0,
                 stride=1,
                 bias=False))
-        """
-        ConvModule(
-                stereo_channel,
-                self.stereo_channels[0],
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                norm_cfg=norm_cfg),
-
         if self.cat_img_feature:
             self.rpnconv = nn.Sequential(
                 ConvModule(
@@ -108,6 +104,16 @@ class SPPUNetNeck(nn.Module):
                     padding=1,
                     norm_cfg=norm_cfg))
         """
+        self.lastconv = nn.Sequential(
+            convbn(stereo_channel, self.stereo_channels[0], 3, 1, 1, gn=True),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(
+                self.stereo_channels[0],
+                self.stereo_channels[1],
+                kernel_size=1,
+                padding=0,
+                stride=1,
+                bias=False))
         if self.cat_img_feature:
             self.rpnconv = nn.Sequential(
                 convbn(

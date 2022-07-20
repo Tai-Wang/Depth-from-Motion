@@ -67,6 +67,7 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
                  loss_bbox=dict(
                      type='SmoothL1Loss', beta=1.0 / 9.0, loss_weight=2.0),
                  loss_dir=dict(type='CrossEntropyLoss', loss_weight=0.2),
+                 loss_iou=None,
                  init_cfg=None):
         super().__init__(init_cfg=init_cfg)
         self.in_channels = in_channels
@@ -102,6 +103,10 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
         self.loss_dir = build_loss(loss_dir)
+        if loss_iou is not None:
+            self.loss_iou = build_loss(loss_iou)
+        else:
+            self.loss_iou = loss_iou
         self.fp16_enabled = False
 
         self._init_layers()
@@ -193,7 +198,7 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
 
     def loss_single(self, cls_score, bbox_pred, dir_cls_preds, labels,
                     label_weights, bbox_targets, bbox_weights, dir_targets,
-                    dir_weights, num_total_samples):
+                    dir_weights, anchors, num_total_samples):
         """Calculate loss of Single-level results.
 
         Args:
@@ -220,6 +225,7 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
         label_weights = label_weights.reshape(-1)
         cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.num_classes)
         assert labels.max().item() <= self.num_classes
+
         loss_cls = self.loss_cls(
             cls_score, labels, label_weights, avg_factor=num_total_samples)
 
@@ -275,7 +281,24 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
             if self.use_direction_classifier:
                 loss_dir = pos_dir_cls_preds.sum()
 
-        return loss_cls, loss_bbox, loss_dir
+        losses = (loss_cls, loss_bbox, loss_dir)
+
+        # iou loss
+        if self.loss_iou is not None:
+            # TODO: check the batch_size > 1 case
+            anchors = anchors.view(-1, self.box_code_size)
+            decode_bbox_preds = self.bbox_coder.decode(anchors[pos_inds],
+                                                       bbox_pred[pos_inds])
+            decode_bbox_targets = self.bbox_coder.decode(
+                anchors[pos_inds], bbox_targets[pos_inds])
+            loss_iou = self.loss_iou(
+                decode_bbox_preds,
+                decode_bbox_targets,
+                weight=None,
+                avg_factor=num_total_samples)
+            losses += (loss_iou, )
+
+        return losses
 
     @staticmethod
     def add_sin_difference(boxes1, boxes2):
@@ -358,7 +381,7 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
             num_total_pos + num_total_neg if self.sampling else num_total_pos)
 
         # num_total_samples = None
-        losses_cls, losses_bbox, losses_dir = multi_apply(
+        losses = multi_apply(
             self.loss_single,
             cls_scores,
             bbox_preds,
@@ -369,9 +392,17 @@ class Anchor3DHead(BaseModule, AnchorTrainMixin):
             bbox_weights_list,
             dir_targets_list,
             dir_weights_list,
+            anchor_list,
             num_total_samples=num_total_samples)
-        return dict(
+
+        losses_cls, losses_bbox, losses_dir = losses[:3]
+        loss_dict = dict(
             loss_cls=losses_cls, loss_bbox=losses_bbox, loss_dir=losses_dir)
+        if self.loss_iou is not None:
+            losses_iou = losses[3]
+            loss_dict['loss_iou'] = losses_iou
+
+        return loss_dict
 
     def get_bboxes(self,
                    cls_scores,

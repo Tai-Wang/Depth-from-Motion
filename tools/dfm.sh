@@ -4,9 +4,9 @@ set -x
 
 CKPT_PATH=/mnt/lustre/wangtai.vendor/mmdet3d-prerelease/work_dirs
 PARTITION=mm_dev
-JOB_NAME=dfm-fix-flip-fgmask
-TASK=dfm-fix-flip-fgmask
-CONFIG=configs/dfm/dfm-baseline-depth-syncbn-fgmask.py
+JOB_NAME=fix-flip-calib-baseinit
+TASK=fix-flip-calib-baseinit
+CONFIG=configs/dfm/dfm-baseline-depth-syncbn-fgmask-usevan-imit.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/latest.pth
 GPUS=8

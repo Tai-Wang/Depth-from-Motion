@@ -2,6 +2,7 @@
 from torch import nn as nn
 
 from mmdet3d.models.utils import convbn
+from mmdet.core import multi_apply
 from mmdet.models import HEADS
 from .anchor3d_head import Anchor3DHead
 
@@ -30,7 +31,6 @@ class LIGAAnchor3DHead(Anchor3DHead):
             self.cls_convs = []
             self.reg_convs = []
             for _ in range(self.num_convs):
-
                 self.cls_convs.append(
                     nn.Sequential(
                         convbn(
@@ -40,7 +40,8 @@ class LIGAAnchor3DHead(Anchor3DHead):
                             1,
                             1,
                             1,
-                            gn=True), nn.ReLU(inplace=True)))
+                            gn=(self.norm_cfg['type'] == 'GN')),
+                        nn.ReLU(inplace=True)))
                 self.reg_convs.append(
                     nn.Sequential(
                         convbn(
@@ -50,13 +51,14 @@ class LIGAAnchor3DHead(Anchor3DHead):
                             1,
                             1,
                             1,
-                            gn=True), nn.ReLU(inplace=True)))
+                            gn=(self.norm_cfg['type'] == 'GN')),
+                        nn.ReLU(inplace=True)))
                 """
                 from mmcv.cnn import ConvModule
                 self.cls_convs.append(
                     ConvModule(
                         self.in_channels,
-                        self.in_channels,
+                        self.feat_channels,
                         kernel_size=3,
                         padding=1,
                         stride=1,
@@ -65,14 +67,13 @@ class LIGAAnchor3DHead(Anchor3DHead):
                 self.reg_convs.append(
                     ConvModule(
                         self.in_channels,
-                        self.in_channels,
+                        self.feat_channels,
                         kernel_size=3,
                         padding=1,
                         stride=1,
                         dilation=1,
                         norm_cfg=self.norm_cfg))
                 """
-
             self.cls_convs = nn.Sequential(*self.cls_convs)
             self.reg_convs = nn.Sequential(*self.reg_convs)
         self.cls_out_channels = self.num_anchors * self.num_classes
@@ -91,6 +92,34 @@ class LIGAAnchor3DHead(Anchor3DHead):
         if self.use_direction_classifier:
             self.conv_dir_cls = nn.Conv2d(self.feat_channels,
                                           self.num_anchors * 2, 1)
+
+    def get_anchors(self, featmap_sizes, input_metas, device='cuda'):
+        """Save anchor_list to self.anchors based on the get_anchors in
+        Anchor3dHead."""
+        num_imgs = len(input_metas)
+        # since feature map sizes of all images are the same, we only compute
+        # anchors for one time
+        multi_level_anchors = self.anchor_generator.grid_anchors(
+            featmap_sizes, device=device)
+        anchor_list = [multi_level_anchors for _ in range(num_imgs)]
+        self.anchors = anchor_list
+        return anchor_list
+
+    def forward(self, feats):
+        """Forward pass.
+
+        Args:
+            feats (list[torch.Tensor]): Multi-level features, e.g.,
+                features produced by FPN.
+
+        Returns:
+            tuple[list[torch.Tensor]]: Multi-level class score, bbox
+                and direction predictions.
+        """
+        # TODO: remove this hack for LIGA Anchor3DHead
+        if not isinstance(feats, list):
+            feats = [feats]
+        return multi_apply(self.forward_single, feats)
 
     def forward_single(self, x):
         """Forward function on a single-scale feature map.

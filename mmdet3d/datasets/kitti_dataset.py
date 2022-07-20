@@ -53,6 +53,13 @@ class KittiDataset(Custom3DDataset):
             Default: [0, -40, -3, 70.4, 40, 0.0].
     """
     CLASSES = ('car', 'pedestrian', 'cyclist')
+    LABEL_MAPPING = {
+        'Car': 'Car',
+        'Pedestrian': 'Pedestrian',
+        'Cyclist': 'Cyclist',
+        'Van': 'Car',
+        'Person_sitting': 'Pedestrian'
+    }
 
     def __init__(self,
                  data_root,
@@ -67,6 +74,7 @@ class KittiDataset(Custom3DDataset):
                  filter_empty_gt=True,
                  test_mode=False,
                  pcd_limit_range=[0, -40, -3, 70.4, 40, 0.0],
+                 use_similar_cls=False,
                  **kwargs):
         super().__init__(
             data_root=data_root,
@@ -85,6 +93,7 @@ class KittiDataset(Custom3DDataset):
         self.pcd_limit_range = pcd_limit_range
         self.pts_prefix = pts_prefix
         self.pseudo_lidar = pseudo_lidar
+        self.use_similar_cls = use_similar_cls
 
     def _get_pts_filename(self, idx):
         """Get point cloud filename according to the given index.
@@ -233,6 +242,9 @@ class KittiDataset(Custom3DDataset):
 
         gt_labels = []
         for cat in gt_names:
+            if self.use_similar_cls:
+                if cat in self.LABEL_MAPPING:
+                    cat = self.LABEL_MAPPING[cat]
             if cat in self.CLASSES:
                 gt_labels.append(self.CLASSES.index(cat))
             else:

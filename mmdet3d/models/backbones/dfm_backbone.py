@@ -32,6 +32,7 @@ class DfMBackbone(nn.Module):
         super(DfMBackbone, self).__init__()
 
         # general config
+        self.norm_cfg = norm_cfg
         self.GN = True  # TODO: replace it with norm_cfg
 
         # stereo config
@@ -50,7 +51,6 @@ class DfMBackbone(nn.Module):
         self.dres1 = nn.Sequential(
             convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN))
         """
-        from mmcv.cnn import ConvModule
         self.dres0 = ConvModule(
             2 * in_channels,
             self.cv_channels,
@@ -66,7 +66,8 @@ class DfMBackbone(nn.Module):
             stride=1,
             padding=1,
             conv_cfg=dict(type='Conv3d'),
-            norm_cfg=norm_cfg)
+            norm_cfg=norm_cfg,
+            act_cfg=None)
         """
 
         self.hg_stereo = nn.ModuleList()
@@ -83,7 +84,27 @@ class DfMBackbone(nn.Module):
             convbn_3d(self.in_channels, self.cv_channels, 3, 1, 1, gn=self.GN),
             nn.ReLU(inplace=True))
         self.dres1_mono = nn.Sequential(
-            convbn_3d(self.in_channels, self.cv_channels, 3, 1, 1, gn=self.GN))
+            convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN))
+        """
+        self.dres0_mono = ConvModule(
+            self.in_channels,
+            self.cv_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            conv_cfg=dict(type='Conv3d'),
+            norm_cfg=norm_cfg)
+        self.dres1_mono = ConvModule(
+            self.cv_channels,
+            self.cv_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            conv_cfg=dict(type='Conv3d'),
+            norm_cfg=norm_cfg,
+            act_cfg=None)
+        """
+
         self.hg_mono = nn.ModuleList()
         for _ in range(self.num_hg):
             self.hg_mono.append(hourglass(self.cv_channels, gn=self.GN))
@@ -111,6 +132,18 @@ class DfMBackbone(nn.Module):
             convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN),
             nn.ReLU(inplace=True),
             nn.Conv3d(self.cv_channels, 1, 3, 1, 1, bias=False))
+        """
+        return nn.Sequential(
+            ConvModule(
+                self.cv_channels,
+                self.cv_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                conv_cfg=dict(type='Conv3d'),
+                norm_cfg=self.norm_cfg),
+            nn.Conv3d(self.cv_channels, 1, 3, 1, 1, bias=False))
+        """
 
     def init_weights(self):
         for m in self.modules():

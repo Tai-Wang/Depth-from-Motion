@@ -1,10 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import numpy as np
 import torch
+import torch.distributed as dist
+import torch.nn as nn
+from mmcv.ops.points_in_boxes import points_in_boxes_part
 
 from mmdet3d.core import bbox3d2result
 from mmdet.models.detectors import BaseDetector
-from ..builder import DETECTORS, build_backbone, build_head, build_neck
+from ..builder import (DETECTORS, build_backbone, build_detector, build_head,
+                       build_neck)
+from .imitation_utils import (NormalizeLayer, WeightedL2WithSigmaLoss,
+                              dist_reduce_mean)
 
 
 @DETECTORS.register_module()
@@ -23,8 +29,11 @@ class DfM(BaseDetector):
                  bbox_head_2d=None,
                  depth_head_2d=None,
                  depth_head=None,
+                 lidar_model=None,
                  depth_cfg=None,
                  voxel_cfg=None,
+                 normalizer_clamp_value=10,
+                 imitation_cfgs=None,
                  train_cfg=None,
                  test_cfg=None,
                  pretrained=None,
@@ -58,6 +67,14 @@ class DfM(BaseDetector):
             self.depth_head_2d = build_head(depth_head_2d)
         if depth_head is not None:
             self.depth_head = build_head(depth_head)
+        self.imitation_cfgs = imitation_cfgs
+        if lidar_model is not None and imitation_cfgs is not None:
+            self.lidar_model = build_detector(lidar_model)
+            for param in self.lidar_model.parameters():
+                param.requires_grad_(False)
+            self._init_imitation_layers()
+            # TODO: replace this hard-code declaration
+            self.loss_imitation = WeightedL2WithSigmaLoss()
         if depth_cfg is not None:
             # TODO: only use default value
             self.downsampled_depth_offset = 0.5
@@ -79,11 +96,19 @@ class DfM(BaseDetector):
             if feature_transformation is not None:
                 self.feature_transformation.coordinates_3d = \
                     self.coordinates_3d
+        self.normalizer_clamp_value = normalizer_clamp_value
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
         bbox_head_3d.update(train_cfg=train_cfg)
         bbox_head_3d.update(test_cfg=test_cfg)
         self.bbox_head_3d = build_head(bbox_head_3d)
+
+    def train(self, mode=True):
+        super(DfM, self).train(mode)
+        # set lidar_model to eval mode by default
+        if self.with_lidar_model:
+            for m in self.lidar_model.modules():
+                m.eval()
 
     @property
     def with_backbone_3d(self):
@@ -114,6 +139,10 @@ class DfM(BaseDetector):
     @property
     def with_depth_head(self):
         return hasattr(self, 'depth_head') and self.depth_head is not None
+
+    @property
+    def with_lidar_model(self):
+        return hasattr(self, 'lidar_model') and self.lidar_model is not None
 
     def prepare_depth(self, depth_cfg):
         # TODO: support different depth division
@@ -175,6 +204,57 @@ class DfM(BaseDetector):
         zs, ys, xs = torch.meshgrid(zs, ys, xs)
         coordinates_3d = torch.stack([xs, ys, zs], dim=-1)
         self.coordinates_3d = coordinates_3d.float()
+
+    def _init_imitation_layers(self):
+        if self.imitation_cfgs is not None:
+            cfgs = self.imitation_cfgs if isinstance(
+                self.imitation_cfgs, list) else [self.imitation_cfgs]
+
+            conv_imitation_layers = []
+            self.norm_imitation = nn.ModuleDict()
+            for cfg in cfgs:
+                layers = []
+                if cfg['layer'] == 'conv2d':
+                    layers.append(
+                        nn.Conv2d(
+                            cfg['channel'],
+                            cfg['channel'],
+                            kernel_size=cfg['kernel_size'],
+                            padding=cfg['kernel_size'] // 2,
+                            stride=1,
+                            groups=1))
+                elif cfg['layer'] == 'conv3d':
+                    layers.append(
+                        nn.Conv3d(
+                            cfg['channel'],
+                            cfg['channel'],
+                            kernel_size=cfg['kernel_size'],
+                            padding=cfg['kernel_size'] // 2,
+                            stride=1,
+                            groups=1))
+                else:
+                    assert cfg['layer'] == 'none', \
+                        f"invalid layer type {cfg['layer']}"
+                if cfg['use_relu']:
+                    layers.append(nn.ReLU())
+                    assert cfg['normalize'] is None
+
+                if cfg['normalize'] is not None:
+                    self.norm_imitation[cfg['stereo_feature_layer']] = \
+                        NormalizeLayer(cfg['normalize'], cfg['channel'])
+                else:
+                    self.norm_imitation[cfg['stereo_feature_layer']] = \
+                        nn.Identity()
+
+                if len(layers) <= 1:
+                    conv_imitation_layers.append(layers[0])
+                else:
+                    conv_imitation_layers.append(nn.Sequential(*layers))
+
+            if len(cfgs) > 1:
+                self.conv_imitation = nn.ModuleList(conv_imitation_layers)
+            else:
+                self.conv_imitation = conv_imitation_layers[0]
 
     def extract_feat(self, img, img_metas):
         """
@@ -241,7 +321,16 @@ class DfM(BaseDetector):
                       gt_labels_3d,
                       depth_img=None,
                       depth_fgmask_img=None,
+                      points=None,
                       **kwargs):
+        """
+        import pdb
+        pdb.set_trace()
+        img[0, 0] = torch.from_numpy(
+            np.load('/mnt/lustre/wangtai.vendor/calib_left_img.npy')).to(img.device)
+        img[0, 1] = torch.from_numpy(
+            np.load('/mnt/lustre/wangtai.vendor/calib_right_img.npy')).to(img.device)
+        """
         mono_stereo_costs, stereo_feats, mono_feats, cur_sem_feat = \
             self.extract_feat(img, img_metas)
 
@@ -262,14 +351,59 @@ class DfM(BaseDetector):
                                         img_metas)
         # TODO: loss_dense_depth, loss_2d, loss_imitation
         if self.with_depth_head and depth_img is not None:
+            if depth_fgmask_img is not None:
+                depth_fgmask_img = depth_fgmask_img.flatten(
+                    start_dim=0, end_dim=1)
             loss_depth = self.depth_head.loss(
                 depth_preds.flatten(start_dim=0, end_dim=1),
                 upsample_costs.flatten(start_dim=0, end_dim=1),
                 depth_img.flatten(start_dim=0, end_dim=1),
-                depth_fgmask_img=depth_fgmask_img.flatten(
-                    start_dim=0, end_dim=1))
+                depth_fgmask_img=depth_fgmask_img)
             losses['loss_dense_depth'] = loss_depth
+        if self.with_lidar_model:
+            lidar_volume_feat, lidar_bev_feat = self.extract_lidar_model_feat(
+                points)
+            raw_features = dict(
+                lidar_features=dict(
+                    spatial_features_2d=lidar_bev_feat,
+                    volume_features=lidar_volume_feat),
+                stereo_features=dict(
+                    spatial_features_2d=bev_feat, volume_features=volume_feat))
+            feature_pairs = self.construct_feature_pairs(raw_features)
+            # TODO: construct feature pairs
+            losses['loss_imitation'] = self.imitation_loss(
+                feature_pairs, gt_bboxes_3d)
         return losses
+
+    def extract_lidar_model_feat(self, points):
+        """Extract features from points."""
+        voxels, num_points, coors = self.lidar_model.voxelize(points)
+        voxel_features = self.lidar_model.voxel_encoder(
+            voxels, num_points, coors)
+        batch_size = coors[-1, 0].item() + 1
+        spatial_feat, volume_feat = self.lidar_model.middle_encoder(
+            voxel_features, coors, batch_size)
+        bev_feat = self.lidar_model.backbone(spatial_feat)
+        return volume_feat, bev_feat
+
+    def construct_feature_pairs(self, raw_features):
+        if self.imitation_cfgs is not None and self.training:
+            imitation_features_pairs = []
+            imitation_conv_layers = [self.conv_imitation] if len(
+                self.imitation_cfgs) == 1 else self.conv_imitation
+            for cfg, imitation_conv in zip(self.imitation_cfgs,
+                                           imitation_conv_layers):
+                lidar_feature_name = cfg['lidar_feature_layer']
+                stereo_feature_name = cfg['stereo_feature_layer']
+                imitation_features_pairs.append(
+                    dict(
+                        config=cfg,
+                        stereo_feature_name=stereo_feature_name,
+                        lidar_feature_name=lidar_feature_name,
+                        gt=raw_features['lidar_features'][lidar_feature_name],
+                        pred=imitation_conv(raw_features['stereo_features']
+                                            [stereo_feature_name])))
+        return imitation_features_pairs
 
     def forward_test(self, img, img_metas, **kwargs):
         """Forward of testing.
@@ -321,3 +455,90 @@ class DfM(BaseDetector):
             list[dict]: Predicted 3d boxes.
         """
         raise NotImplementedError
+
+    def imitation_loss(self, feature_pairs, gt_bboxes_3d):
+        imitation_loss_list = []
+        for feature_pair in feature_pairs:
+            features_preds = feature_pair['pred']
+            features_targets = feature_pair['gt']
+            imitation_loss, _ = self.get_imitation_reg_layer_loss(
+                features_preds=features_preds,
+                features_targets=features_targets,
+                imitation_cfg=feature_pair['config'],
+                gt_bboxes_3d=gt_bboxes_3d)
+            imitation_loss_list.append(imitation_loss)
+        return imitation_loss_list
+
+    def get_imitation_reg_layer_loss(self, features_preds, features_targets,
+                                     imitation_cfg, gt_bboxes_3d):
+        # TODO: check all the self attributes
+        batch_size = int(features_preds.shape[0])
+        features_preds = features_preds.permute(
+            0, *range(2, len(features_preds.shape)), 1)
+        features_targets = features_targets.permute(
+            0, *range(2, len(features_targets.shape)), 1)
+
+        if imitation_cfg['mode'] == 'inbox':
+            anchors_xyz = self.bbox_head_3d.anchors[0][:, :, :, 0,
+                                                       0, :3].clone()
+            gt_boxes = torch.stack([
+                gt_bbox_3d.tensor[..., :7].clone().to(features_preds.device)
+                for gt_bbox_3d in gt_bboxes_3d
+            ],
+                                   dim=0)
+            anchors_xyz[..., 2] = 0
+            gt_boxes[..., 2] = 0
+            positives = points_in_boxes_part(
+                anchors_xyz.view(anchors_xyz.shape[0], -1, 3), gt_boxes)
+            # output -1 by default for background
+            positives = (positives >= 0).view(*anchors_xyz.shape[:3])
+        elif imitation_cfg['mode'] == 'full':
+            positives = features_preds.new_ones(*features_preds.shape[:3])
+            if dist.get_rank() == 0:
+                print('using full imitation mask')
+        else:
+            raise ValueError('wrong imitation mode')
+
+        if len(features_targets.shape) == 5:
+            # 3d feature
+            positives = positives.unsqueeze(1).repeat(
+                1, features_targets.shape[1], 1, 1)
+        else:
+            assert len(features_targets.shape) == 4
+
+        positives = positives & torch.any(features_targets != 0, dim=-1)
+
+        reg_weights = positives.float()
+        pos_normalizer = positives.sum().float()
+        pos_normalizer = dist_reduce_mean(pos_normalizer.mean())
+        reg_weights /= torch.clamp(
+            pos_normalizer, min=self.normalizer_clamp_value)
+
+        pos_inds = reg_weights > 0
+        pos_feature_preds = features_preds[pos_inds]
+        pos_feature_targets = self.norm_imitation[
+            imitation_cfg['stereo_feature_layer']](
+                features_targets[pos_inds])
+
+        imitation_loss_src = self.loss_imitation(
+            pos_feature_preds,
+            pos_feature_targets,
+            weights=reg_weights[pos_inds])  # [N, M]
+        imitation_loss_src = imitation_loss_src.mean(-1)
+
+        imitation_loss = imitation_loss_src.sum() / batch_size
+        imitation_loss = imitation_loss * imitation_cfg['loss_weight']
+
+        tb_dict = {
+            'rpn_loss_imitation': imitation_loss.item(),
+        }
+
+        if pos_inds.sum() > 0:
+            rel_err = torch.median(
+                torch.abs((pos_feature_preds - pos_feature_targets) /
+                          pos_feature_targets))
+            tb_dict['rel_err_imitation_feature'] = rel_err.item()
+        else:
+            tb_dict['rel_err_imitation_feature'] = 0.
+
+        return imitation_loss, tb_dict

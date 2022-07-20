@@ -19,24 +19,6 @@ from .data_augment_utils import noise_per_object_v3_
 
 
 @PIPELINES.register_module()
-class GenerateAmodal2DBoxes(object):
-    """Generate amodal 2D boxes by projecting 3D ground truth boxes."""
-
-    def __init__(self):
-        pass
-
-    def __call__(self, input_dict):
-        # gt_bboxes_3d = input_dict['gt_bboxes_3d']
-        # pseudo lidar
-        # TODO: finish this function
-        pass
-
-    def __repr__(self):
-        repr_str = self.__class__.__name__
-        return repr_str
-
-
-@PIPELINES.register_module()
 class GenerateDepthMap(object):
     """Generate depth map by projecting LiDAR points."""
 
@@ -157,11 +139,13 @@ class RandomFlip3D(RandomFlip):
                  sync_2d=True,
                  flip_ratio_bev_horizontal=0.0,
                  flip_ratio_bev_vertical=0.0,
+                 with_baseline_offset=False,
                  **kwargs):
         super(RandomFlip3D, self).__init__(
             flip_ratio=flip_ratio_bev_horizontal, **kwargs)
         self.sync_2d = sync_2d
         self.flip_ratio_bev_vertical = flip_ratio_bev_vertical
+        self.with_baseline_offset = with_baseline_offset
         if flip_ratio_bev_horizontal is not None:
             assert isinstance(
                 flip_ratio_bev_horizontal,
@@ -207,7 +191,15 @@ class RandomFlip3D(RandomFlip):
         # see more details and examples at
         # https://github.com/open-mmlab/mmdetection3d/pull/744
         if 'cam2img' in input_dict:
-            input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
+            if self.with_baseline_offset:
+                K = input_dict['cam2img'][:3, :3].copy()
+                inv_K = np.linalg.inv(K)
+                T2 = np.matmul(inv_K, input_dict['cam2img'][:3, :])
+                T2[0, 3] *= -1
+                K[0, 2] = w - 1 - K[0, 2]
+                input_dict['cam2img'][:3, :] = np.matmul(K, T2)
+            else:
+                input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
         if 'centers2d' in input_dict:
             assert self.sync_2d is True and direction == 'horizontal', \
                 'Only support sync_2d=True and horizontal flip with images'
@@ -251,6 +243,7 @@ class RandomFlip3D(RandomFlip):
         if input_dict['pcd_vertical_flip']:
             self.random_flip_data_3d(input_dict, 'vertical')
             input_dict['transformation_3d_flow'].extend(['VF'])
+
         return input_dict
 
     def __repr__(self):
@@ -2052,6 +2045,7 @@ class Resize3D(Resize):
                  keep_ratio=True,
                  bbox_clip_border=True,
                  backend='cv2',
+                 interpolation='nearest',
                  override=False):
         super(Resize3D, self).__init__(
             img_scale=img_scale,
@@ -2060,6 +2054,7 @@ class Resize3D(Resize):
             keep_ratio=keep_ratio,
             bbox_clip_border=bbox_clip_border,
             backend=backend,
+            interpolation=interpolation,
             override=override)
 
     def _random_scale(self, results):

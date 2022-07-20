@@ -312,6 +312,7 @@ class AnchorTrainMixin(object):
 
         if len(neg_inds) > 0:
             label_weights[neg_inds] = 1.0
+
         return (labels, label_weights, bbox_targets, bbox_weights, dir_targets,
                 dir_weights, pos_inds, neg_inds)
 

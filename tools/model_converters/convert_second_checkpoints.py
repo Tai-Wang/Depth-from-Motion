@@ -10,7 +10,7 @@ from mmdet3d.models import build_detector
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description='MMDet3D version of LIGA-DfM checkpoint')
+        description='MMDet3D version of SECOND teacher checkpoint')
     parser.add_argument('config', help='path of the config file')
     parser.add_argument('checkpoint', help='checkpoint file')
     parser.add_argument('--out', help='path of the output checkpoint file')
@@ -19,7 +19,7 @@ def parse_args():
 
 
 def main():
-    """Convert LIGA-DfM checkpoints to mmdet3d-style."""
+    """Convert SECOND teacher checkpoints to mmdet3d-style."""
     args = parse_args()
     checkpoint = torch.load(args.checkpoint)
     cfg = Config.fromfile(args.config)
@@ -32,34 +32,18 @@ def main():
     converted_ckpt = ori_ckpt.copy()
 
     RENAME_PREFIX = {
-        'lidar_model.backbone_3d.conv1':
-        'lidar_model.middle_encoder.encoder_layers.encoder_layer1',
-        'lidar_model.backbone_3d.conv2':
-        'lidar_model.middle_encoder.encoder_layers.encoder_layer2',
-        'lidar_model.backbone_3d.conv3':
-        'lidar_model.middle_encoder.encoder_layers.encoder_layer3',
-        'lidar_model.backbone_3d.conv4':
-        'lidar_model.middle_encoder.encoder_layers.encoder_layer4',
-        'lidar_model.backbone_3d': 'lidar_model.middle_encoder',
-        'lidar_model.backbone_2d.rpn3d_conv2':
-        'lidar_model.backbone.compress_conv',
-        'lidar_model.backbone_2d.rpn3d_conv3':
-        'lidar_model.backbone.bev_hourglass',
-        'backbone_3d.feature_backbone': 'backbone',
-        'backbone_3d.feature_neck': 'neck',
-        'backbone_3d.sem_neck': 'neck_2d',
-        'backbone_3d.rpn3d_convs': 'feature_transformation.voxel_convs',
-        'backbone_3d': 'backbone_stereo',
-        'backbone_2d.rpn3d_conv2': 'backbone_3d.compress_conv',
-        'backbone_2d.rpn3d_conv3': 'backbone_3d.bev_hourglass',
-        'dense_head_2d': 'bbox_head_2d',
-        'dense_head.rpn3d_cls_convs': 'bbox_head_3d.cls_convs',
-        'dense_head.rpn3d_bbox_convs': 'bbox_head_3d.reg_convs',
-        'dense_head.conv_cls': 'bbox_head_3d.conv_cls',
-        'dense_head.conv_box': 'bbox_head_3d.conv_reg',
-        'dense_head.conv_dir_cls': 'bbox_head_3d.conv_dir_cls',
-        'dense_head.norm_imitation': 'norm_imitation',
-        'dense_head.conv_imitation': 'conv_imitation'
+        'backbone_3d.conv1': 'middle_encoder.encoder_layers.encoder_layer1',
+        'backbone_3d.conv2': 'middle_encoder.encoder_layers.encoder_layer2',
+        'backbone_3d.conv3': 'middle_encoder.encoder_layers.encoder_layer3',
+        'backbone_3d.conv4': 'middle_encoder.encoder_layers.encoder_layer4',
+        'backbone_3d': 'middle_encoder',
+        'backbone_2d.rpn3d_conv2': 'backbone.compress_conv',
+        'backbone_2d.rpn3d_conv3': 'backbone.bev_hourglass',
+        'dense_head.rpn3d_cls_convs': 'bbox_head.cls_convs',
+        'dense_head.rpn3d_bbox_convs': 'bbox_head.reg_convs',
+        'dense_head.conv_cls': 'bbox_head.conv_cls',
+        'dense_head.conv_box': 'bbox_head.conv_reg',
+        'dense_head.conv_dir_cls': 'bbox_head.conv_dir_cls'
     }
 
     # Delete some useless keys

@@ -51,7 +51,6 @@ class FrustumToVoxel(nn.Module):
 
         voxel_convs = []
         for i in range(self.num_3dconvs):
-
             voxel_convs.append(
                 nn.Sequential(
                     convbn_3d(
@@ -76,7 +75,7 @@ class FrustumToVoxel(nn.Module):
             """
 
         self.voxel_convs = nn.Sequential(*voxel_convs)
-        self.voxel_pool = torch.nn.AvgPool3d((4, 1, 1), stride=(4, 1, 1))
+        self.voxel_pool = nn.AvgPool3d((4, 1, 1), stride=(4, 1, 1))
         self.init_weights()
 
     def init_weights(self):
