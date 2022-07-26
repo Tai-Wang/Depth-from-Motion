@@ -34,7 +34,7 @@ The complete model checkpoints and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet34](./configs/dfm/dfm.py) | - | - | - | 29.3570 | 20.2645 | 17.4731 | [model](https://drive.google.com/file/d/1EyNPt2j1-MVwmaFu3WaLTcEWj1JZxHBU/view?usp=sharing)|
+| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.3570 | 20.2645 | 17.4731 | [model](https://drive.google.com/file/d/1EyNPt2j1-MVwmaFu3WaLTcEWj1JZxHBU/view?usp=sharing)|
 
 ### MV-FCOS3D++
 
