@@ -16,6 +16,7 @@ Note: We will also release the refactored code in the official [mmdet3d](https:/
 > Tai Wang, Jiangmiao Pang, Dahua Lin            
 > In: Proc. European Conference on Computer Vision (ECCV), 2022          
 > \[arXiv][[Bibtex](https://github.com/Tai-Wang/Depth-from-Motion#citation)]
+>
 > **MV-FCOS3D++: Multi-View Camera-Only 4D Object Detection with Pretrained Monocular Backbones**,            
 > Tai Wang, Qing Lian, Chenming Zhu, Xinge Zhu, Wenwei Zhang            
 > In: arxiv, 2022          
@@ -26,18 +27,23 @@ Note: We will also release the refactored code in the official [mmdet3d](https:/
 ### DfM
 
 The results of DfM and its corresponding config are shown as below.
+
 We have released the preliminary model for reproducing the results on the KITTI validation set.
+
 The complete model checkpoints and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet34](./configs/dfm/dfm.py) | - | - | - |   |  |  | [model]()|
+| [ResNet34](./configs/dfm/dfm.py) | - | - | - | 29.3570 | 20.2645 | 17.4731 | [model](https://drive.google.com/file/d/1EyNPt2j1-MVwmaFu3WaLTcEWj1JZxHBU/view?usp=sharing)|
 
 ### MV-FCOS3D++
 
 The results of MV-FCOS3D++ (baseline version) and its corresponding config are shown as below.
+
 We have released the preliminary config for reproducing the results on the Waymo validation set.
+
 (To comply the license agreement of Waymo dataset, the pre-trained models on Waymo dataset are not released.)
+
 The complete model configs and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  mAPL  | mAP | mAPH | Download |
@@ -53,7 +59,7 @@ It requires the following OpenMMLab packages:
 - MMDetection >= v2.24.0
 - MMSegmentation >= v0.20.0
 
-All the above versions are recommended except mmcv. Lower version of mmdet and mmseg may also work but I do not test them temporarily.
+All the above versions are recommended except mmcv. Lower version of mmdet and mmseg may also work but are not tested temporarily.
 
 Example commands are shown as follows.
 
