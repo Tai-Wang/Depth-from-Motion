@@ -52,14 +52,14 @@ def main():
         'backbone_3d': 'backbone_stereo',
         'backbone_2d.rpn3d_conv2': 'backbone_3d.compress_conv',
         'backbone_2d.rpn3d_conv3': 'backbone_3d.bev_hourglass',
-        'dense_head_2d': 'bbox_head_2d',
+        'dense_head_2d.bbox_head': 'bbox_head_2d',
         'dense_head.rpn3d_cls_convs': 'bbox_head_3d.cls_convs',
         'dense_head.rpn3d_bbox_convs': 'bbox_head_3d.reg_convs',
         'dense_head.conv_cls': 'bbox_head_3d.conv_cls',
         'dense_head.conv_box': 'bbox_head_3d.conv_reg',
         'dense_head.conv_dir_cls': 'bbox_head_3d.conv_dir_cls',
         'dense_head.norm_imitation': 'norm_imitation',
-        'dense_head.conv_imitation': 'conv_imitation'
+        'dense_head.conv_imitation': 'conv_imitation',
     }
 
     # Delete some useless keys

@@ -69,7 +69,6 @@ model = dict(
         with_upconv=True,
         cat_img_feature=True,
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
-    bbox_head_2d=None,
     neck_2d=dict(
         type='FPN',
         in_channels=[32],  # should be the same of sem_channels[-1]
@@ -77,6 +76,45 @@ model = dict(
         start_level=0,
         add_extra_convs='on_output',
         num_outs=5),
+    bbox_head_2d=dict(
+        type='LIGAATSSHead',
+        reg_class_agnostic=False,  # check True/False which one is better
+        seperate_extra_reg_branch=False,  # True may be better
+        num_classes=3,
+        in_channels=64,
+        stacked_convs=4,
+        feat_channels=64,
+        anchor_generator=dict(
+            type='AnchorGenerator',
+            ratios=[1.0],
+            octave_base_scale=16,
+            scales_per_octave=1,
+            strides=[4, 8, 16, 32, 64]),
+        num_extra_reg_channel=0,
+        bbox_coder=dict(
+            type='DeltaXYWHBBoxCoder',
+            target_means=[.0, .0, .0, .0],
+            target_stds=[0.1, 0.1, 0.2, 0.2]),
+        loss_cls=dict(
+            type='FocalLoss',
+            use_sigmoid=True,
+            gamma=2.0,
+            alpha=0.25,
+            loss_weight=1.0),
+        loss_bbox=dict(type='GIoULoss', loss_weight=2.0),
+        loss_centerness=dict(
+            type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+        train_cfg=dict(
+            assigner=dict(type='ATSS3DCenterAssigner', topk=9),
+            allowed_border=-1,
+            pos_weight=-1,
+            append_3d_centers=True),
+        test_cfg=dict(
+            nms_pre=1000,
+            min_bbox_size=0,
+            score_thr=0.05,
+            nms=dict(type='nms', iou_threshold=0.6),
+            max_per_img=100)),
     backbone_stereo=dict(
         type='DfMBackbone',
         in_channels=32,  # should be the same of stereo_channels[-1]
@@ -219,6 +257,7 @@ file_client_args = dict(
 # Explore RandomFlip3D Aug
 train_pipeline = [
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
+    dict(type='IgnoredObjectFilter'),  # should be before loadann
     dict(type='LoadAnnotations3D'),
     dict(
         type='LoadPointsFromFile',
@@ -254,12 +293,13 @@ train_pipeline = [
         ]),
     dict(type='GenerateDepthMap', generate_fgmask=True),
     dict(type='ObjectRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='GenerateAmodal2DBoxes'),
     dict(type='DefaultFormatBundle3D', class_names=class_names),
     dict(
         type='Collect3D',
         keys=[
             'img', 'gt_bboxes_3d', 'gt_labels_3d', 'depth_img',
-            'depth_fgmask_img', 'points'
+            'depth_fgmask_img', 'points', 'gt_bboxes', 'centers2d'
         ])
 ]
 test_pipeline = [
@@ -329,8 +369,8 @@ data = dict(
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 # although grad_clip is set in original code, it is not used
-# optimizer_config = dict(grad_clip=None)
-optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
+optimizer_config = dict(grad_clip=None)
+# optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # learning policy
 lr_config = dict(
     policy='step',
@@ -352,4 +392,4 @@ log_level = 'INFO'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]
-find_unused_parameters = True  # only stereo neck feats are used
+find_unused_parameters = True  # only one layer FPN output is used

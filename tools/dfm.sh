@@ -4,9 +4,9 @@ set -x
 
 CKPT_PATH=/mnt/lustre/wangtai.vendor/mmdet3d-prerelease/work_dirs
 PARTITION=mm_dev
-JOB_NAME=fix-flip-calib-baseinit
-TASK=fix-flip-calib-baseinit
-CONFIG=configs/dfm/dfm-baseline-depth-syncbn-fgmask-usevan-imit.py
+JOB_NAME=benchmark-w2d-baseinit
+TASK=benchmark-w2d-baseinit
+CONFIG=configs/dfm/dfm-w2d.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/latest.pth
 GPUS=8
@@ -15,6 +15,7 @@ XNODE=SH-IDC1-10-140-0-[224,232,240,242,245,247,255],SH-IDC1-10-140-1-[24,28,41,
 PORT=29301
 
 PYTHONPATH="$(dirname $0)/..":$PYTHONPATH \
+CUDA_LAUNCH_BLOCKING=1 \
 srun -p ${PARTITION} -x ${XNODE} \
     --job-name=${JOB_NAME} \
     --gres=gpu:${GPUS_PER_NODE} \

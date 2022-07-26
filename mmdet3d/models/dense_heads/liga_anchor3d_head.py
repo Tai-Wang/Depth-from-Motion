@@ -20,9 +20,14 @@ class LIGAAnchor3DHead(Anchor3DHead):
             and regression branch.
     """
 
-    def __init__(self, num_convs=2, norm_cfg=None, **kwargs):
+    def __init__(self,
+                 num_convs=2,
+                 norm_cfg=None,
+                 normalizer_clamp_value=10,
+                 **kwargs):
         self.num_convs = num_convs
         self.norm_cfg = norm_cfg
+        self.normalizer_clamp_value = normalizer_clamp_value
         super().__init__(**kwargs)
 
     def _init_layers(self):
@@ -142,3 +147,93 @@ class LIGAAnchor3DHead(Anchor3DHead):
         if self.use_direction_classifier:
             dir_cls_preds = self.conv_dir_cls(cls_feats)
         return cls_score, bbox_pred, dir_cls_preds
+
+    def loss_single(self, cls_score, bbox_pred, dir_cls_preds, labels,
+                    label_weights, bbox_targets, bbox_weights, dir_targets,
+                    dir_weights, anchors, num_total_samples):
+        """Different in dealing with the clamp value for loss normalizer."""
+        # classification loss
+        if num_total_samples is None:
+            num_total_samples = int(cls_score.shape[0])
+        labels = labels.reshape(-1)
+        label_weights = label_weights.reshape(-1)
+        cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.num_classes)
+        assert labels.max().item() <= self.num_classes
+
+        loss_cls = self.loss_cls(
+            cls_score,
+            labels,
+            label_weights,
+            avg_factor=(num_total_samples + self.normalizer_clamp_value))
+
+        # regression loss
+        bbox_pred = bbox_pred.permute(0, 2, 3,
+                                      1).reshape(-1, self.box_code_size)
+        bbox_targets = bbox_targets.reshape(-1, self.box_code_size)
+        bbox_weights = bbox_weights.reshape(-1, self.box_code_size)
+
+        bg_class_ind = self.num_classes
+        pos_inds = ((labels >= 0)
+                    & (labels < bg_class_ind)).nonzero(
+                        as_tuple=False).reshape(-1)
+        num_pos = len(pos_inds)
+
+        pos_bbox_pred = bbox_pred[pos_inds]
+        pos_bbox_targets = bbox_targets[pos_inds]
+        pos_bbox_weights = bbox_weights[pos_inds]
+
+        # dir loss
+        if self.use_direction_classifier:
+            dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).reshape(-1, 2)
+            dir_targets = dir_targets.reshape(-1)
+            dir_weights = dir_weights.reshape(-1)
+            pos_dir_cls_preds = dir_cls_preds[pos_inds]
+            pos_dir_targets = dir_targets[pos_inds]
+            pos_dir_weights = dir_weights[pos_inds]
+
+        if num_pos > 0:
+            code_weight = self.train_cfg.get('code_weight', None)
+            if code_weight:
+                pos_bbox_weights = pos_bbox_weights * bbox_weights.new_tensor(
+                    code_weight)
+            if self.diff_rad_by_sin:
+                pos_bbox_pred, pos_bbox_targets = self.add_sin_difference(
+                    pos_bbox_pred, pos_bbox_targets)
+            loss_bbox = self.loss_bbox(
+                pos_bbox_pred,
+                pos_bbox_targets,
+                pos_bbox_weights,
+                avg_factor=max(num_total_samples, self.normalizer_clamp_value))
+
+            # direction classification loss
+            loss_dir = None
+            if self.use_direction_classifier:
+                loss_dir = self.loss_dir(
+                    pos_dir_cls_preds,
+                    pos_dir_targets,
+                    pos_dir_weights,
+                    avg_factor=max(num_total_samples,
+                                   self.normalizer_clamp_value))
+        else:
+            loss_bbox = pos_bbox_pred.sum()
+            if self.use_direction_classifier:
+                loss_dir = pos_dir_cls_preds.sum()
+
+        losses = (loss_cls, loss_bbox, loss_dir)
+
+        # iou loss
+        if self.loss_iou is not None:
+            # TODO: check the batch_size > 1 case
+            anchors = anchors.view(-1, self.box_code_size)
+            decode_bbox_preds = self.bbox_coder.decode(anchors[pos_inds],
+                                                       bbox_pred[pos_inds])
+            decode_bbox_targets = self.bbox_coder.decode(
+                anchors[pos_inds], bbox_targets[pos_inds])
+            loss_iou = self.loss_iou(
+                decode_bbox_preds,
+                decode_bbox_targets,
+                weight=None,
+                avg_factor=max(num_total_samples, self.normalizer_clamp_value))
+            losses += (loss_iou, )
+
+        return losses

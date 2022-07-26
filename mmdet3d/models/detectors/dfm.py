@@ -9,6 +9,7 @@ from mmdet3d.core import bbox3d2result
 from mmdet.models.detectors import BaseDetector
 from ..builder import (DETECTORS, build_backbone, build_detector, build_head,
                        build_neck)
+from ..dense_heads import LIGAATSSHead
 from .imitation_utils import (NormalizeLayer, WeightedL2WithSigmaLoss,
                               dist_reduce_mean)
 
@@ -101,6 +102,7 @@ class DfM(BaseDetector):
         self.test_cfg = test_cfg
         bbox_head_3d.update(train_cfg=train_cfg)
         bbox_head_3d.update(test_cfg=test_cfg)
+        bbox_head_3d.update(normalizer_clamp_value=normalizer_clamp_value)
         self.bbox_head_3d = build_head(bbox_head_3d)
 
     def train(self, mode=True):
@@ -319,18 +321,12 @@ class DfM(BaseDetector):
                       img_metas,
                       gt_bboxes_3d,
                       gt_labels_3d,
+                      gt_bboxes=None,
                       depth_img=None,
                       depth_fgmask_img=None,
                       points=None,
+                      centers2d=None,
                       **kwargs):
-        """
-        import pdb
-        pdb.set_trace()
-        img[0, 0] = torch.from_numpy(
-            np.load('/mnt/lustre/wangtai.vendor/calib_left_img.npy')).to(img.device)
-        img[0, 1] = torch.from_numpy(
-            np.load('/mnt/lustre/wangtai.vendor/calib_right_img.npy')).to(img.device)
-        """
         mono_stereo_costs, stereo_feats, mono_feats, cur_sem_feat = \
             self.extract_feat(img, img_metas)
 
@@ -350,6 +346,24 @@ class DfM(BaseDetector):
         losses = self.bbox_head_3d.loss(*outs, gt_bboxes_3d, gt_labels_3d,
                                         img_metas)
         # TODO: loss_dense_depth, loss_2d, loss_imitation
+        if self.with_bbox_head_2d and gt_bboxes is not None:
+            if isinstance(self.bbox_head_2d, LIGAATSSHead):
+                if self.bbox_head_2d.assigner.append_3d_centers:
+                    for sample_idx in range(len(gt_bboxes)):
+                        gt_bboxes[sample_idx] = torch.cat(
+                            [gt_bboxes[sample_idx], centers2d[sample_idx]],
+                            dim=-1)
+            sem_feat_2d = self.neck_2d([cur_sem_feat])
+            outs_2d = self.bbox_head_2d(sem_feat_2d)
+            losses_bbox2d = self.bbox_head_2d.loss(
+                *outs_2d,
+                gt_bboxes,
+                gt_labels=gt_labels_3d,
+                img_metas=img_metas)
+            for key in losses_bbox2d.keys():
+                losses_bbox2d[key] = sum(losses_bbox2d[key])
+            loss_bbox2d = sum([v for _, v in losses_bbox2d.items()])
+            losses['loss_bbox2d'] = loss_bbox2d
         if self.with_depth_head and depth_img is not None:
             if depth_fgmask_img is not None:
                 depth_fgmask_img = depth_fgmask_img.flatten(

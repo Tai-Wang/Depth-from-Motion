@@ -14,8 +14,41 @@ from mmdet3d.core.bbox import (CameraInstance3DBoxes, DepthInstance3DBoxes,
                                points_cam2img)
 from mmdet.datasets.pipelines import RandomCrop, RandomFlip, Resize
 from ..builder import OBJECTSAMPLERS, PIPELINES
-from ..utils import depth_map_in_boxes_cpu
+from ..utils import (boxes3d_kitti_camera_to_imageboxes,
+                     boxes3d_kitti_camera_to_imagecenters,
+                     boxes3d_lidar_to_kitti_camera, depth_map_in_boxes_cpu)
 from .data_augment_utils import noise_per_object_v3_
+
+
+@PIPELINES.register_module()
+class GenerateAmodal2DBoxes(object):
+    """Generate depth map by projecting LiDAR points."""
+
+    def __init__(self):
+        pass
+
+    def __call__(self, input_dict):
+        # the input boxes of boxes_3d_lidar_to_kitti_camera
+        # should set the gravity center as the first 3 dimensions
+        gt_centers_3d_numpy = input_dict['gt_bboxes_3d'].gravity_center.cpu(
+        ).numpy()
+        gt_bboxes_3d_numpy = input_dict['gt_bboxes_3d'].tensor.cpu().numpy()
+        gt_bboxes_3d_numpy = np.concatenate(
+            [gt_centers_3d_numpy, gt_bboxes_3d_numpy[:, 3:]], axis=-1)
+        gt_bboxes_3d_cam = boxes3d_lidar_to_kitti_camera(
+            gt_bboxes_3d_numpy, calib=None, pseudo_lidar=True)
+        input_dict['gt_bboxes'] = boxes3d_kitti_camera_to_imageboxes(
+            gt_bboxes_3d_cam,
+            input_dict['calib'],
+            input_dict['img_shape'],
+            fix_neg_z_bug=True)
+        input_dict['centers2d'] = boxes3d_kitti_camera_to_imagecenters(
+            gt_bboxes_3d_cam, input_dict['calib'], input_dict['img_shape'])
+        return input_dict
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        return repr_str
 
 
 @PIPELINES.register_module()
@@ -200,6 +233,8 @@ class RandomFlip3D(RandomFlip):
                 input_dict['cam2img'][:3, :] = np.matmul(K, T2)
             else:
                 input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
+        if 'calib' in input_dict:
+            input_dict['calib'].flipl(input_dict['img_shape'][1])
         if 'centers2d' in input_dict:
             assert self.sync_2d is True and direction == 'horizontal', \
                 'Only support sync_2d=True and horizontal flip with images'
@@ -890,6 +925,36 @@ class TruncatedObjectFilter(object):
         repr_str += f'(area_ratio_threshold={self.area_ratio_threshold})'
         repr_str += \
             f'(area_2d_ratio_threshold={self.area_2d_ratio_threshold})'
+        return repr_str
+
+
+@PIPELINES.register_module()
+class IgnoredObjectFilter(object):
+    """Filter ignored objects from the image views."""
+
+    def __call__(self, input_dict):
+        """Call function to filter objects by the range.
+
+        Args:
+            input_dict (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d'
+                keys are updated in the result dict.
+        """
+        valid_mask = input_dict['ann_info']['labels'] > -1
+        for key in input_dict['ann_info'].keys():
+            # the only ann does correspond to each instance
+            if key == 'plane':
+                continue
+            input_dict['ann_info'][key] = input_dict['ann_info'][key][
+                valid_mask]
+
+        return input_dict
+
+    def __repr__(self):
+        """str: Return a string that describes the module."""
+        repr_str = self.__class__.__name__
         return repr_str
 
 
@@ -2106,6 +2171,10 @@ class Resize3D(Resize):
             len(results['cam2img'][0]))
         results['cam2img'][1] *= results['scale_factor'][1].repeat(
             len(results['cam2img'][1]))
+        if 'calib' in results:
+            assert self.keep_ratio, 'calib.scale only support ' \
+                'keep_ratio=True for now.'
+            results['calib'].scale(results['scale_factor'][0])
 
     def __call__(self, results):
         """Call function to resize images, bounding boxes, masks, semantic
@@ -2401,6 +2470,8 @@ class RandomCrop3D(RandomCrop):
         results['cam2img'][:offset_cam2img.shape[0], :offset_cam2img.
                            shape[1]] = offset_cam2img
         results['crop_offset'] = [crop_x1, crop_y1]
+        if 'calib' in results:
+            results['calib'].offset(crop_x1, crop_y1)
 
         return results
 

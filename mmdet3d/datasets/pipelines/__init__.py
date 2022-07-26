@@ -12,9 +12,9 @@ from .test_time_aug import MultiScaleFlipAug3D
 # yapf: disable
 from .transforms_3d import (AffineResize, BackgroundPointsFilter,
                             GlobalAlignment, GlobalRotScaleTrans,
-                            IndoorPatchPointSample, IndoorPointSample,
-                            MultiViewImageCrop3D, MultiViewImageNormalize,
-                            MultiViewImagePad,
+                            IgnoredObjectFilter, IndoorPatchPointSample,
+                            IndoorPointSample, MultiViewImageCrop3D,
+                            MultiViewImageNormalize, MultiViewImagePad,
                             MultiViewImagePhotoMetricDistortion,
                             MultiViewImageResize3D, MultiViewRandomFlip3D,
                             ObjectNameFilter, ObjectNoise, ObjectRangeFilter,
@@ -37,5 +37,6 @@ __all__ = [
     'LoadPointsFromDict', 'MultiViewImageNormalize', 'MultiViewImagePad',
     'MultiViewImagePhotoMetricDistortion', 'MultiViewImageResize3D',
     'LoadMultiViewDepthFromFiles', 'MultiViewRandomFlip3D',
-    'MultiViewImageCrop3D', 'DepthPipeline', 'VideoPipeline'
+    'MultiViewImageCrop3D', 'DepthPipeline', 'VideoPipeline',
+    'IgnoredObjectFilter'
 ]

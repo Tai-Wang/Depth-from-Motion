@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 from mmcv.cnn import ConvModule, Scale
 
-from mmdet.core import multiclass_nms
+from mmdet.core import anchor_inside_flags, multiclass_nms, unmap
 from mmdet.models import HEADS
 from mmdet.models.dense_heads import ATSSHead
 
@@ -376,3 +376,108 @@ class LIGAATSSHead(ATSSHead):
             return det_bboxes, det_labels
         else:
             return mlvl_bboxes, mlvl_scores, mlvl_centerness
+
+    def centerness_target(self, anchors, bbox_targets):
+        # NOTE: here needs decode first in this head design
+        # only calculate pos centerness targets, otherwise there may be nan
+        gts = self.bbox_coder.decode(anchors, bbox_targets)
+        anchors_cx = (anchors[:, 2] + anchors[:, 0]) / 2
+        anchors_cy = (anchors[:, 3] + anchors[:, 1]) / 2
+        l_ = anchors_cx - gts[:, 0]
+        t_ = anchors_cy - gts[:, 1]
+        r_ = gts[:, 2] - anchors_cx
+        b_ = gts[:, 3] - anchors_cy
+
+        left_right = torch.stack([l_, r_], dim=1)
+        top_bottom = torch.stack([t_, b_], dim=1)
+        centerness = torch.sqrt(
+            (left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) *
+            (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0]))
+        assert not torch.isnan(centerness).any()
+        return centerness
+
+    def _get_target_single(self,
+                           flat_anchors,
+                           valid_flags,
+                           num_level_anchors,
+                           gt_bboxes,
+                           gt_bboxes_ignore,
+                           gt_labels,
+                           img_meta,
+                           label_channels=1,
+                           unmap_outputs=True,
+                           return_sampling_results=False):
+        """Fix some incompatible minor places compared to the version in
+        ATSSHead."""
+        inside_flags = anchor_inside_flags(flat_anchors, valid_flags,
+                                           img_meta['img_shape'][:2],
+                                           self.train_cfg.allowed_border)
+        if not inside_flags.any():
+            return (None, ) * 7
+        # assign gt and sample anchors
+        anchors = flat_anchors[inside_flags, :]
+
+        num_level_anchors_inside = self.get_num_level_anchors_inside(
+            num_level_anchors, inside_flags)
+        assign_result = self.assigner.assign(anchors, num_level_anchors_inside,
+                                             gt_bboxes, gt_bboxes_ignore,
+                                             gt_labels)
+
+        sampling_result = self.sampler.sample(assign_result, anchors,
+                                              gt_bboxes)
+
+        num_valid_anchors = anchors.shape[0]
+        if getattr(self, 'num_reg_channel', None) is None:
+            self.num_reg_channel = anchors.shape[1]
+        bbox_targets = anchors.new_zeros(
+            [anchors.shape[0], self.num_reg_channel])
+        bbox_weights = anchors.new_zeros(
+            [anchors.shape[0], self.num_reg_channel])
+        labels = anchors.new_full((num_valid_anchors, ),
+                                  self.num_classes,
+                                  dtype=torch.long)
+        label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
+
+        pos_inds = sampling_result.pos_inds
+        neg_inds = sampling_result.neg_inds
+        if len(pos_inds) > 0:
+            if hasattr(self, 'bbox_coder'):
+                pos_bbox_targets = self.bbox_coder.encode(
+                    sampling_result.pos_bboxes,
+                    sampling_result.pos_gt_bboxes[:, :4])
+            else:
+                # used in VFNetHead
+                pos_bbox_targets = sampling_result.pos_gt_bboxes
+            bbox_targets[pos_inds, :] = pos_bbox_targets
+            bbox_weights[pos_inds, :] = 1.0
+            if gt_labels is None:
+                # Only rpn gives gt_labels as None
+                # Foreground is the first class since v2.5.0
+                labels[pos_inds] = 0
+            else:
+                labels[pos_inds] = gt_labels[
+                    sampling_result.pos_assigned_gt_inds]
+            if self.train_cfg.pos_weight <= 0:
+                label_weights[pos_inds] = 1.0
+            else:
+                label_weights[pos_inds] = self.train_cfg.pos_weight
+        if len(neg_inds) > 0:
+            label_weights[neg_inds] = 1.0
+
+        # map up to original set of anchors
+        if unmap_outputs:
+            num_total_anchors = flat_anchors.size(0)
+            anchors = unmap(anchors, num_total_anchors, inside_flags)
+            labels = unmap(
+                labels, num_total_anchors, inside_flags, fill=self.num_classes)
+            label_weights = unmap(label_weights, num_total_anchors,
+                                  inside_flags)
+            bbox_targets = unmap(bbox_targets, num_total_anchors, inside_flags)
+            bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+
+        if not return_sampling_results:
+            return (anchors, labels, label_weights, bbox_targets, bbox_weights,
+                    pos_inds, neg_inds)
+        else:
+            return (anchors, labels, label_weights, bbox_targets, bbox_weights,
+                    pos_inds, neg_inds, assign_result)
