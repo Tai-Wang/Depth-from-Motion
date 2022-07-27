@@ -15,12 +15,12 @@ Note: We will also release the refactored code in the official [mmdet3d](https:/
 > **Monocular 3D Object Detection with Depth from Motion**,            
 > Tai Wang, Jiangmiao Pang, Dahua Lin            
 > In: Proc. European Conference on Computer Vision (ECCV), 2022          
-> \[arXiv][[Bibtex](https://github.com/Tai-Wang/Depth-from-Motion#citation)]
+> [[arXiv](https://arxiv.org/abs/2207.12988)][[Bibtex](https://github.com/Tai-Wang/Depth-from-Motion#citation)]
 >
 > **MV-FCOS3D++: Multi-View Camera-Only 4D Object Detection with Pretrained Monocular Backbones**,            
 > Tai Wang, Qing Lian, Chenming Zhu, Xinge Zhu, Wenwei Zhang            
 > In: arxiv, 2022          
-> \[arXiv][[Bibtex](https://github.com/Tai-Wang/Depth-from-Motion#citation)]
+> [[arXiv](https://arxiv.org/abs/2207.12716)][[Bibtex](https://github.com/Tai-Wang/Depth-from-Motion#citation)]
 
 ## Results
 
@@ -154,6 +154,10 @@ For simple inference and evaluation, you can use the command below:
 # evaluate DfM on KITTI and MV-FCOS3D++ on Waymo
 ./tools/slurm_test.sh ${PARTITION} ${JOB_NAME} ${CONFIG_FILE} ${CKPT_PATH} --eval mAP
 ```
+
+## Acknowledgement
+
+This codebase is based on [MMDet3D](https://github.com/open-mmlab/mmdetection3d) and it benefits a lot from [LIGA-Stereo](https://github.com/xy-guo/LIGA-Stereo).
 
 ## Citation
 
