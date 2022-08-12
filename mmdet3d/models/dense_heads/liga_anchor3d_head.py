@@ -152,6 +152,10 @@ class LIGAAnchor3DHead(Anchor3DHead):
                     label_weights, bbox_targets, bbox_weights, dir_targets,
                     dir_weights, anchors, num_total_samples):
         """Different in dealing with the clamp value for loss normalizer."""
+        """
+        import pdb
+        pdb.set_trace()
+        """
         # classification loss
         if num_total_samples is None:
             num_total_samples = int(cls_score.shape[0])

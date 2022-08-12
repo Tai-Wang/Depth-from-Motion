@@ -118,7 +118,14 @@ class FrustumToVoxel(nn.Module):
             c3d = coordinates_3d.view(-1, 3)
             # in pseudo lidar coord
             c3d = project_pseudo_lidar_to_rectcam(c3d)
-            coord_img = project_rect_to_image(c3d, cam2imgs[i].float().cuda())
+            """
+            import pdb
+            pdb.set_trace()
+            """
+            # coord_img = project_rect_to_image(
+            #     c3d, cam2imgs[i].float().cuda())
+            coord_img = project_rect_to_image(c3d,
+                                              cam2imgs[i][:3].float().cuda())
 
             coord_img = torch.cat([coord_img, c3d[..., 2:]], dim=-1)
             coord_img = coord_img.view(*self.coordinates_3d.shape[:3], 3)

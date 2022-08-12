@@ -285,7 +285,9 @@ def build_dfm_cost(cur_feats,
     # apply 3D transformation to get original cur and prev 3D grid
     for idx in range(batch_size):
         # grid3d: (D*H_out*W_out, 3)
-        grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx])
+        """import pdb pdb.set_trace()"""
+        grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx][:3])
+        # grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx])
         # only support flip transformation for now
         if flip:  # get the original 3D grid by transforming it back
             grid3d[:, 0] = -grid3d[:, 0]

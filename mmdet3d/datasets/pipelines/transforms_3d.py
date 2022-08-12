@@ -5,13 +5,13 @@ import warnings
 import cv2
 import mmcv
 import numpy as np
+import torch
 from mmcv import is_tuple_of
 from mmcv.utils import build_from_cfg
 
 from mmdet3d.core import VoxelGenerator
 from mmdet3d.core.bbox import (CameraInstance3DBoxes, DepthInstance3DBoxes,
-                               LiDARInstance3DBoxes, box_np_ops,
-                               points_cam2img)
+                               LiDARInstance3DBoxes, box_np_ops)
 from mmdet.datasets.pipelines import RandomCrop, RandomFlip, Resize
 from ..builder import OBJECTSAMPLERS, PIPELINES
 from ..utils import (boxes3d_kitti_camera_to_imageboxes,
@@ -70,6 +70,8 @@ class GenerateDepthMap(object):
             [pseudo_points,
              np.ones([pseudo_points.shape[0], 1])], axis=-1)
         rect_points = homo_pseudo_points @ pseudo2cam_T
+        """
+        # TODO: replace the LIGA projection with the accurate points_cam2img
         cam_points = points_cam2img(rect_points, cam2img, with_depth=True)
         img_coords = cam_points[:, :2]
         depths = cam_points[:, 2]
@@ -79,6 +81,21 @@ class GenerateDepthMap(object):
         ix = np.round(img_coords[:, 0]).astype(np.int64)
         mask = (iy >= 0) & (ix >= 0) & (iy < depth_img.shape[0]) & (
             ix < depth_img.shape[1])
+        iy, ix = iy[mask], ix[mask]
+        depth_img[iy, ix] = depths[mask]
+        input_dict['depth_img'] = depth_img
+        """
+        calib = input_dict['calib']
+        img_coords, depths = calib.rect_to_img(rect_points[:, :3])
+        # TODO: check img_shape
+        depth_img = np.zeros(input_dict['pad_shape'][:2], dtype=np.float32)
+        iy = np.round(img_coords[:, 1]).astype(np.int64)
+        ix = np.round(img_coords[:, 0]).astype(np.int64)
+        # depth > 0 mask in LIGA merged here
+        img_shape = input_dict['img_shape'][:2]
+        mask = (iy >= 0) & (ix >= 0) & (iy < img_shape[0]) & (ix <
+                                                              img_shape[1]) & (
+                                                                  depths > 0)
         iy, ix = iy[mask], ix[mask]
         depth_img[iy, ix] = depths[mask]
         input_dict['depth_img'] = depth_img
@@ -830,8 +847,16 @@ class ObjectRangeFilter(object):
         point_cloud_range (list[float]): Point cloud range.
     """
 
-    def __init__(self, point_cloud_range):
+    def __init__(self,
+                 point_cloud_range,
+                 filter_scheme='bev',
+                 min_num_corners=1):
         self.pcd_range = np.array(point_cloud_range, dtype=np.float32)
+        assert filter_scheme in ['bev', 'corner']
+        self.filter_scheme = filter_scheme
+        if filter_scheme == 'corner':
+            assert min_num_corners is not None
+            self.min_num_corners = min_num_corners
 
     def __call__(self, input_dict):
         """Call function to filter objects by the range.
@@ -842,16 +867,25 @@ class ObjectRangeFilter(object):
             dict: Results after filtering, 'gt_bboxes_3d', 'gt_labels_3d'
                 keys are updated in the result dict.
         """
-        # Check points instance type and initialise bev_range
-        if isinstance(input_dict['gt_bboxes_3d'],
-                      (LiDARInstance3DBoxes, DepthInstance3DBoxes)):
-            bev_range = self.pcd_range[[0, 1, 3, 4]]
-        elif isinstance(input_dict['gt_bboxes_3d'], CameraInstance3DBoxes):
-            bev_range = self.pcd_range[[0, 2, 3, 5]]
-
         gt_bboxes_3d = input_dict['gt_bboxes_3d']
         gt_labels_3d = input_dict['gt_labels_3d']
-        mask = gt_bboxes_3d.in_range_bev(bev_range)
+        if self.filter_scheme == 'bev':
+            # Check points instance type and initialise bev_range
+            if isinstance(input_dict['gt_bboxes_3d'],
+                          (LiDARInstance3DBoxes, DepthInstance3DBoxes)):
+                bev_range = self.pcd_range[[0, 1, 3, 4]]
+            elif isinstance(input_dict['gt_bboxes_3d'], CameraInstance3DBoxes):
+                bev_range = self.pcd_range[[0, 2, 3, 5]]
+            mask = gt_bboxes_3d.in_range_bev(bev_range)
+        elif self.filter_scheme == 'corner':
+            limit_range = torch.from_numpy(self.pcd_range).to(
+                gt_bboxes_3d.tensor.device)
+            corners = gt_bboxes_3d.corners
+            mask = ((corners >= limit_range[0:3]) &
+                    (corners <= limit_range[3:6])).all(dim=2)
+            mask = mask.sum(dim=1) >= self.min_num_corners  # (N)
+        else:
+            raise NotImplementedError
         gt_bboxes_3d = gt_bboxes_3d[mask]
         # mask is a torch tensor but gt_labels_3d is still numpy array
         # using mask to index gt_labels_3d will cause bug when
@@ -2101,7 +2135,12 @@ class MultiViewImagePhotoMetricDistortion(object):
 
 @PIPELINES.register_module()
 class Resize3D(Resize):
-    """Resize 3D labels."""
+    """Resize 3D labels.
+
+    Different from 2D Resize, we accept img_scale=None and ratio_range is not
+    None. In that case we will take the input img scale as the ori_scale for
+    rescaling with ratio_range.
+    """
 
     def __init__(self,
                  img_scale=None,
@@ -2111,16 +2150,30 @@ class Resize3D(Resize):
                  bbox_clip_border=True,
                  backend='cv2',
                  interpolation='nearest',
-                 override=False):
-        super(Resize3D, self).__init__(
-            img_scale=img_scale,
-            multiscale_mode=multiscale_mode,
-            ratio_range=ratio_range,
-            keep_ratio=keep_ratio,
-            bbox_clip_border=bbox_clip_border,
-            backend=backend,
-            interpolation=interpolation,
-            override=override)
+                 override=False,
+                 cam2img_keep_ratio=False):
+        if img_scale is None:
+            self.img_scale = None
+        else:
+            if isinstance(img_scale, list):
+                self.img_scale = img_scale
+            else:
+                self.img_scale = [img_scale]
+            assert mmcv.is_list_of(self.img_scale, tuple)
+
+        if ratio_range is None:
+            # mode 2: given multiple scales or a range of scales
+            assert multiscale_mode in ['value', 'range']
+
+        self.backend = backend
+        self.multiscale_mode = multiscale_mode
+        self.ratio_range = ratio_range
+        self.keep_ratio = keep_ratio
+        # TODO: refactor the override option in Resize
+        self.interpolation = interpolation
+        self.override = override
+        self.bbox_clip_border = bbox_clip_border
+        self.cam2img_keep_ratio = cam2img_keep_ratio
 
     def _random_scale(self, results):
         """Randomly sample an img_scale according to ``ratio_range`` and
@@ -2169,8 +2222,12 @@ class Resize3D(Resize):
         # camera intrinsic
         results['cam2img'][0] *= results['scale_factor'][0].repeat(
             len(results['cam2img'][0]))
-        results['cam2img'][1] *= results['scale_factor'][1].repeat(
-            len(results['cam2img'][1]))
+        if self.cam2img_keep_ratio:
+            results['cam2img'][1] *= results['scale_factor'][0].repeat(
+                len(results['cam2img'][1]))
+        else:
+            results['cam2img'][1] *= results['scale_factor'][1].repeat(
+                len(results['cam2img'][1]))
         if 'calib' in results:
             assert self.keep_ratio, 'calib.scale only support ' \
                 'keep_ratio=True for now.'

@@ -86,12 +86,20 @@ class Calibration(object):
         return np.linalg.inv(self.K)
 
     def global_scale(self, scale_factor):
-        self.P2[:, 3:4] *= scale_factor
-        self.P3[:, 3:4] *= scale_factor
+        if isinstance(scale_factor, tuple) or isinstance(scale_factor, list):
+            self.P2[:, 3:4] *= scale_factor[0]
+            self.P3[:, 3:4] *= scale_factor[1]
+        else:
+            self.P2[:, 3:4] *= scale_factor
+            self.P3[:, 3:4] *= scale_factor
 
     def scale(self, scale_factor):
-        self.P2[:2, :] *= scale_factor
-        self.P3[:2, :] *= scale_factor
+        if isinstance(scale_factor, tuple) or isinstance(scale_factor, list):
+            self.P2[:2, :] *= scale_factor[0]
+            self.P3[:2, :] *= scale_factor[1]
+        else:
+            self.P2[:2, :] *= scale_factor
+            self.P3[:2, :] *= scale_factor
 
     def offset(self, offset_x, offset_y):
         K = self.K.copy()

@@ -395,6 +395,6 @@ log_config = dict(
 evaluation = dict(interval=1)
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = None
+load_from = '/mnt/lustre/wangtai/mmdet3d-prerelease/work_dirs/dfm/dfm-init.pth'
 resume_from = None
 workflow = [('train', 1)]

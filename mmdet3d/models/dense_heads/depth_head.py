@@ -83,6 +83,10 @@ class DepthHead(nn.Module):
             depth_volumes: [B*N, D, H, W]
             depth_img: [B*N, H, W]
         """
+        """
+        import pdb
+        pdb.set_trace()
+        """
         depth_samples = self.depth_samples.to(depth_preds.device)
         depth_loss = 0.
         assert len(depth_preds) == len(depth_volumes)

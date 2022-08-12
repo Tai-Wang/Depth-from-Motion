@@ -1021,8 +1021,8 @@ class PGDHead(FCOSMono3DHead):
             # change the offset to actual center predictions
             bbox_pred3d[:, :2] = points - bbox_pred3d[:, :2]
             if rescale:
-                bbox_pred3d[:, :2] /= bbox_pred3d[:, :2].new_tensor(
-                    scale_factor)
+                # bbox_pred3d[:, :2] /= bbox_pred3d[:, :2].new_tensor(
+                #     scale_factor[:2])
                 if self.pred_bbox2d:
                     bbox_pred2d /= bbox_pred2d.new_tensor(scale_factor)
             if self.use_depth_classifier:

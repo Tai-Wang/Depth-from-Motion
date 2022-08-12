@@ -25,8 +25,11 @@ model = dict(
     backbone_stereo=None,
     depth_head=None,
     backbone_3d=None,
-    neck_3d=dict(type='OutdoorImVoxelNeck', in_channels=64, out_channels=256),
+    neck_3d=dict(
+        type='DfMNeck', in_channels=64, out_channels=256,
+        num_frames=2),  # num_frames = num_ref_frames+1
     valid_sample=True,
+    temporal_aggregate='concat',
     voxel_size=(0.5, 0.5, 0.5),  # n_voxels=[240, 300, 12]
     anchor_generator=dict(
         type='AlignedAnchor3DRangeGenerator',
@@ -95,8 +98,8 @@ model = dict(
         nms_thr=0.05,
         score_thr=0.001,
         min_bbox_size=0,
-        nms_pre=4096,
-        max_num=500))
+        nms_pre=500,
+        max_num=100))
 
 dataset_type = 'WaymoDataset'
 data_root = 'data/waymo/kitti_format/'
@@ -122,7 +125,10 @@ train_pipeline = [
     dict(
         type='LoadMultiViewImageFromFiles',
         to_float32=True,
-        file_client_args=file_client_args),
+        file_client_args=file_client_args,
+        num_views=5,
+        num_ref_frames=1,
+        test_mode=False),
     dict(type='MultiViewImagePhotoMetricDistortion'),
     dict(
         type='MultiViewImageResize3D',
@@ -148,7 +154,10 @@ test_pipeline = [
     dict(
         type='LoadMultiViewImageFromFiles',
         to_float32=True,
-        file_client_args=file_client_args),
+        file_client_args=file_client_args,
+        num_views=5,
+        num_ref_frames=1,
+        test_mode=True),
     dict(
         type='MultiViewImageResize3D',
         img_scale=(1248, 832),
@@ -178,6 +187,7 @@ data = dict(
         box_type_3d='LiDAR',
         load_interval=5,
         load_mode='lidar_frame',
+        max_sweeps=10,
         cam_sync=True,
         file_client_args=file_client_args),
     val=dict(
@@ -191,6 +201,7 @@ data = dict(
         test_mode=True,
         box_type_3d='LiDAR',
         load_mode='lidar_frame',
+        max_sweeps=10,
         cam_sync=True,
         file_client_args=file_client_args),
     test=dict(
@@ -204,6 +215,7 @@ data = dict(
         test_mode=True,
         box_type_3d='LiDAR',
         load_mode='lidar_frame',
+        max_sweeps=10,
         cam_sync=True,
         file_client_args=file_client_args))
 

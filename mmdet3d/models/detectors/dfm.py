@@ -102,7 +102,9 @@ class DfM(BaseDetector):
         self.test_cfg = test_cfg
         bbox_head_3d.update(train_cfg=train_cfg)
         bbox_head_3d.update(test_cfg=test_cfg)
-        bbox_head_3d.update(normalizer_clamp_value=normalizer_clamp_value)
+        # TODO: remove this hack
+        if bbox_head_3d['type'] == 'LIGAAnchor3DHead':
+            bbox_head_3d.update(normalizer_clamp_value=normalizer_clamp_value)
         self.bbox_head_3d = build_head(bbox_head_3d)
 
     def train(self, mode=True):
@@ -308,6 +310,16 @@ class DfM(BaseDetector):
         # almost the same result with np.linalg.inv
         # while torch.linalg.inv can not
         cur2prevs = torch.linalg.solve(pad_prev_cam2global, pad_cur_cam2global)
+        """
+        import pdb
+        pdb.set_trace()
+        cur2prevs[0] = torch.tensor(
+            [[[ 1.0000e+00,  7.2400e-05,  8.8020e-05,  1.3661e-03],
+              [-7.2018e-05,  1.0000e+00, -4.6973e-05,  1.9263e-03],
+              [-8.7991e-05,  4.6382e-05,  1.0000e+00,  4.5071e-03],
+              [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.0000e+00]]],
+            device='cuda:0')
+        """
         for meta_idx, img_meta in enumerate(img_metas):
             img_meta['cur2prevs'] = cur2prevs[meta_idx]
         # stereo backbone for depth estimation
@@ -327,6 +339,14 @@ class DfM(BaseDetector):
                       points=None,
                       centers2d=None,
                       **kwargs):
+        """
+        import pdb
+        pdb.set_trace()
+        img[0, 0] = torch.from_numpy(
+            np.load('/mnt/lustre/wangtai/calib_left_img.npy')).to(img.device)
+        img[0, 1] = torch.from_numpy(
+            np.load('/mnt/lustre/wangtai/calib_right_img.npy')).to(img.device)
+        """
         mono_stereo_costs, stereo_feats, mono_feats, cur_sem_feat = \
             self.extract_feat(img, img_metas)
 
