@@ -158,6 +158,7 @@ class KittiDataset(Custom3DDataset):
         calib_file = img_info['filename'].replace('image_2', 'calib').replace(
             'png', 'txt')
         calib = Calibration(calib_file)
+        ori_calib = Calibration(calib_file)
 
         pts_filename = self._get_pts_filename(sample_idx)
         input_dict = dict(
@@ -166,6 +167,7 @@ class KittiDataset(Custom3DDataset):
             img_prefix=None,
             img_info=img_info,
             calib=calib,
+            ori_calib=ori_calib,
             cam2img=cam2img,
             lidar2img=lidar2img,
             lidar2cam=lidar2cam)
@@ -258,7 +260,6 @@ class KittiDataset(Custom3DDataset):
                 gt_labels.append(-1)
         gt_labels = np.array(gt_labels).astype(np.int64)
         gt_labels_3d = copy.deepcopy(gt_labels)
-        # print("loading dataset:", gt_labels)
 
         anns_results = dict(
             gt_bboxes_3d=gt_bboxes_3d,

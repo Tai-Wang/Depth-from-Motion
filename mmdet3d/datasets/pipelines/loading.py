@@ -464,6 +464,10 @@ class VideoPipeline(object):
 
         base_results = self.transforms(base_results)
         multi_imgs = [base_results['img']]
+        pad_cur_cam2global = np.eye(4)
+        pad_cur_cam2global[:base_results['cam2global'].
+                           shape[0], :base_results['cam2global'].
+                           shape[1]] = base_results['cam2global']
         """
         # collect image metas
         img_metas = {}
@@ -473,6 +477,7 @@ class VideoPipeline(object):
         """
         # only save prev_img_metas in sweep_img_metas
         sweep_img_metas = []
+        cur2prevs = []
         # apply self.transforms to referenced images
         for i in ids.tolist():
             ref_results = copy.deepcopy(org_results)
@@ -522,8 +527,18 @@ class VideoPipeline(object):
                     img_metas[key] = ref_results[key]
             sweep_img_metas.append(img_metas)
 
+            # derive cur2prev transformation
+            pad_prev_cam2global = np.eye(4)
+            pad_prev_cam2global[:ref_results['cam2global'].
+                                shape[0], :ref_results['cam2global'].
+                                shape[1]] = ref_results['cam2global']
+            cur2prev = np.linalg.inv(pad_prev_cam2global).dot(
+                pad_cur_cam2global)
+            cur2prevs.append(cur2prev)
+
         base_results['img'] = multi_imgs
         base_results['sweep_img_metas'] = sweep_img_metas
+        base_results['cur2prevs'] = np.stack(cur2prevs, axis=0)
 
         # copy the contents in base_results to results
         for key in base_results.keys():

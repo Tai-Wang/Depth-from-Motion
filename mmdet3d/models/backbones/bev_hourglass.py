@@ -1,13 +1,15 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch.nn as nn
 import torch.nn.functional as F
+from mmcv.cnn import ConvModule
+from mmcv.runner import BaseModule
 
 from mmdet3d.models.utils import convbn
 from mmdet.models.builder import BACKBONES
 
 
 @BACKBONES.register_module()
-class BEVHourglass(nn.Module):
+class BEVHourglass(BaseModule):
 
     def __init__(self,
                  in_channels,
@@ -18,8 +20,7 @@ class BEVHourglass(nn.Module):
         self.out_channels = out_channels
         self.norm_cfg = norm_cfg
         self.output_prehg_feat = output_prehg_feat
-        """
-        from mmcv.cnn import ConvModule
+
         self.compress_conv = ConvModule(
             in_channels,
             out_channels,
@@ -28,17 +29,6 @@ class BEVHourglass(nn.Module):
             padding=1,
             dilation=1,
             norm_cfg=norm_cfg)
-        """
-        self.compress_conv = nn.Sequential(
-            convbn(
-                in_channels,
-                out_channels,
-                3,
-                1,
-                1,
-                1,
-                gn=(norm_cfg['type'] == 'GN')), nn.ReLU(inplace=True))
-
         self.bev_hourglass = hourglass2d(
             self.out_channels, gn=(norm_cfg['type'] == 'GN'))
         self.num_bev_features = self.out_channels

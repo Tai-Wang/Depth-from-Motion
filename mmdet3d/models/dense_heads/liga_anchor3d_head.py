@@ -1,9 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import torch
+from mmcv.cnn import ConvModule
 from torch import nn as nn
 
-from mmdet3d.models.utils import convbn
 from mmdet.core import multi_apply
 from mmdet.models import HEADS
+from ..utils.common_utils import dist_reduce_mean
 from .anchor3d_head import Anchor3DHead
 
 
@@ -24,10 +26,12 @@ class LIGAAnchor3DHead(Anchor3DHead):
                  num_convs=2,
                  norm_cfg=None,
                  normalizer_clamp_value=10,
+                 reduce_avg_factor=True,
                  **kwargs):
         self.num_convs = num_convs
         self.norm_cfg = norm_cfg
         self.normalizer_clamp_value = normalizer_clamp_value
+        self.reduce_avg_factor = reduce_avg_factor
         super().__init__(**kwargs)
 
     def _init_layers(self):
@@ -37,30 +41,6 @@ class LIGAAnchor3DHead(Anchor3DHead):
             self.reg_convs = []
             for _ in range(self.num_convs):
                 self.cls_convs.append(
-                    nn.Sequential(
-                        convbn(
-                            self.in_channels,
-                            self.feat_channels,
-                            3,
-                            1,
-                            1,
-                            1,
-                            gn=(self.norm_cfg['type'] == 'GN')),
-                        nn.ReLU(inplace=True)))
-                self.reg_convs.append(
-                    nn.Sequential(
-                        convbn(
-                            self.in_channels,
-                            self.feat_channels,
-                            3,
-                            1,
-                            1,
-                            1,
-                            gn=(self.norm_cfg['type'] == 'GN')),
-                        nn.ReLU(inplace=True)))
-                """
-                from mmcv.cnn import ConvModule
-                self.cls_convs.append(
                     ConvModule(
                         self.in_channels,
                         self.feat_channels,
@@ -78,7 +58,6 @@ class LIGAAnchor3DHead(Anchor3DHead):
                         stride=1,
                         dilation=1,
                         norm_cfg=self.norm_cfg))
-                """
             self.cls_convs = nn.Sequential(*self.cls_convs)
             self.reg_convs = nn.Sequential(*self.reg_convs)
         self.cls_out_channels = self.num_anchors * self.num_classes
@@ -152,10 +131,6 @@ class LIGAAnchor3DHead(Anchor3DHead):
                     label_weights, bbox_targets, bbox_weights, dir_targets,
                     dir_weights, anchors, num_total_samples):
         """Different in dealing with the clamp value for loss normalizer."""
-        """
-        import pdb
-        pdb.set_trace()
-        """
         # classification loss
         if num_total_samples is None:
             num_total_samples = int(cls_score.shape[0])
@@ -164,11 +139,15 @@ class LIGAAnchor3DHead(Anchor3DHead):
         cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.num_classes)
         assert labels.max().item() <= self.num_classes
 
+        if self.reduce_avg_factor:
+            avg_factor = dist_reduce_mean(
+                cls_score.new_tensor(num_total_samples))
+
         loss_cls = self.loss_cls(
             cls_score,
             labels,
             label_weights,
-            avg_factor=(num_total_samples + self.normalizer_clamp_value))
+            avg_factor=(avg_factor + self.normalizer_clamp_value))
 
         # regression loss
         bbox_pred = bbox_pred.permute(0, 2, 3,
@@ -207,7 +186,8 @@ class LIGAAnchor3DHead(Anchor3DHead):
                 pos_bbox_pred,
                 pos_bbox_targets,
                 pos_bbox_weights,
-                avg_factor=max(num_total_samples, self.normalizer_clamp_value))
+                avg_factor=torch.clamp(
+                    avg_factor, min=self.normalizer_clamp_value))
 
             # direction classification loss
             loss_dir = None
@@ -216,8 +196,8 @@ class LIGAAnchor3DHead(Anchor3DHead):
                     pos_dir_cls_preds,
                     pos_dir_targets,
                     pos_dir_weights,
-                    avg_factor=max(num_total_samples,
-                                   self.normalizer_clamp_value))
+                    avg_factor=torch.clamp(
+                        avg_factor, min=self.normalizer_clamp_value))
         else:
             loss_bbox = pos_bbox_pred.sum()
             if self.use_direction_classifier:
@@ -237,7 +217,8 @@ class LIGAAnchor3DHead(Anchor3DHead):
                 decode_bbox_preds,
                 decode_bbox_targets,
                 weight=None,
-                avg_factor=max(num_total_samples, self.normalizer_clamp_value))
+                avg_factor=torch.clamp(
+                    avg_factor, min=self.normalizer_clamp_value))
             losses += (loss_iou, )
 
         return losses

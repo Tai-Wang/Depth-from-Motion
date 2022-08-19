@@ -200,7 +200,7 @@ class BasePoints(object):
             )
         self.tensor[:, :3] += trans_vector
 
-    def in_range_3d(self, point_range):
+    def in_range_3d(self, point_range, height_filter=True):
         """Check whether the points are in the given range.
 
         Args:
@@ -216,12 +216,18 @@ class BasePoints(object):
             torch.Tensor: A binary vector indicating whether each point is
                 inside the reference range.
         """
-        in_range_flags = ((self.tensor[:, 0] > point_range[0])
-                          & (self.tensor[:, 1] > point_range[1])
-                          & (self.tensor[:, 2] > point_range[2])
-                          & (self.tensor[:, 0] < point_range[3])
-                          & (self.tensor[:, 1] < point_range[4])
-                          & (self.tensor[:, 2] < point_range[5]))
+        if height_filter:
+            in_range_flags = ((self.tensor[:, 0] > point_range[0])
+                              & (self.tensor[:, 1] > point_range[1])
+                              & (self.tensor[:, 2] > point_range[2])
+                              & (self.tensor[:, 0] < point_range[3])
+                              & (self.tensor[:, 1] < point_range[4])
+                              & (self.tensor[:, 2] < point_range[5]))
+        else:
+            in_range_flags = ((self.tensor[:, 0] > point_range[0])
+                              & (self.tensor[:, 1] > point_range[1])
+                              & (self.tensor[:, 0] < point_range[3])
+                              & (self.tensor[:, 1] < point_range[4]))
         return in_range_flags
 
     @property

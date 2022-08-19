@@ -2,14 +2,16 @@
 """Adapted from LIGA-Stereo."""
 import torch
 import torch.nn.functional as F
+from mmcv.cnn import ConvModule
+from mmcv.runner import BaseModule
 from torch import nn
 
-from mmdet3d.models.utils import convbn, upconv_module
+from mmdet3d.models.utils import upconv_module
 from mmdet.models import NECKS
 
 
 @NECKS.register_module()
-class SPPUNetNeck(nn.Module):
+class SPPUNetNeck(BaseModule):
 
     def __init__(self,
                  in_channels,
@@ -33,21 +35,6 @@ class SPPUNetNeck(nn.Module):
         self.spp_branches = nn.ModuleList([
             nn.Sequential(
                 nn.AvgPool2d(s, stride=s),
-                convbn(
-                    self.in_channels[-1],
-                    self.spp_channel,
-                    1,
-                    1,
-                    0,
-                    gn=True,
-                    groups=min(32, self.spp_channel)), nn.ReLU(inplace=True))
-            for s in [(64, 64), (32, 32), (16, 16), (8, 8)]
-        ])
-        """
-        from mmcv.cnn import ConvModule
-        self.spp_branches = nn.ModuleList([
-            nn.Sequential(
-                nn.AvgPool2d(s, stride=s),
                 ConvModule(
                     self.in_channels[-1],
                     self.spp_channel,
@@ -57,7 +44,6 @@ class SPPUNetNeck(nn.Module):
                     norm_cfg=norm_cfg))
             for s in [(64, 64), (32, 32), (16, 16), (8, 8)]
         ])
-        """
 
         concat_channel = self.spp_channel * len(self.spp_branches) + sum(
             self.in_channels[self.start_level:])
@@ -71,7 +57,7 @@ class SPPUNetNeck(nn.Module):
         else:
             stereo_channel = concat_channel
             assert self.start_level >= 1
-        """
+
         self.lastconv = nn.Sequential(
             ConvModule(
                 stereo_channel,
@@ -103,29 +89,6 @@ class SPPUNetNeck(nn.Module):
                     stride=1,
                     padding=1,
                     norm_cfg=norm_cfg))
-        """
-        self.lastconv = nn.Sequential(
-            convbn(stereo_channel, self.stereo_channels[0], 3, 1, 1, gn=True),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(
-                self.stereo_channels[0],
-                self.stereo_channels[1],
-                kernel_size=1,
-                padding=0,
-                stride=1,
-                bias=False))
-        if self.cat_img_feature:
-            self.rpnconv = nn.Sequential(
-                convbn(
-                    concat_channel, self.sem_channels[0], 3, 1, 1, 1, gn=True),
-                nn.ReLU(inplace=True),
-                convbn(
-                    self.sem_channels[0],
-                    self.sem_channels[1],
-                    3,
-                    1,
-                    1,
-                    gn=True), nn.ReLU(inplace=True))
 
     def forward(self, feats):
         feat_shape = tuple(feats[self.start_level].shape[2:])

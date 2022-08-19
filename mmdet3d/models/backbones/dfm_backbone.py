@@ -1,18 +1,18 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
+from mmcv.cnn import ConvModule
+from mmcv.runner import BaseModule
 
 from mmdet3d.core.bbox import points_cam2img, points_img2cam
-from mmdet3d.models.utils import convbn_3d, hourglass
+from mmdet3d.models.utils import hourglass
 from mmdet.models.builder import BACKBONES
 
 
 @BACKBONES.register_module()
-class DfMBackbone(nn.Module):
+class DfMBackbone(BaseModule):
 
     def __init__(
         self,
@@ -45,12 +45,6 @@ class DfMBackbone(nn.Module):
         # stereo network
         self.in_channels = in_channels
 
-        self.dres0 = nn.Sequential(
-            convbn_3d(2 * in_channels, self.cv_channels, 3, 1, 1, gn=self.GN),
-            nn.ReLU(inplace=True))
-        self.dres1 = nn.Sequential(
-            convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN))
-        """
         self.dres0 = ConvModule(
             2 * in_channels,
             self.cv_channels,
@@ -68,7 +62,6 @@ class DfMBackbone(nn.Module):
             conv_cfg=dict(type='Conv3d'),
             norm_cfg=norm_cfg,
             act_cfg=None)
-        """
 
         self.hg_stereo = nn.ModuleList()
         for _ in range(self.num_hg):
@@ -80,12 +73,6 @@ class DfMBackbone(nn.Module):
             self.pred_stereo.append(self.build_depth_pred_module())
 
         # mono network
-        self.dres0_mono = nn.Sequential(
-            convbn_3d(self.in_channels, self.cv_channels, 3, 1, 1, gn=self.GN),
-            nn.ReLU(inplace=True))
-        self.dres1_mono = nn.Sequential(
-            convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN))
-        """
         self.dres0_mono = ConvModule(
             self.in_channels,
             self.cv_channels,
@@ -103,7 +90,6 @@ class DfMBackbone(nn.Module):
             conv_cfg=dict(type='Conv3d'),
             norm_cfg=norm_cfg,
             act_cfg=None)
-        """
 
         self.hg_mono = nn.ModuleList()
         for _ in range(self.num_hg):
@@ -129,11 +115,6 @@ class DfMBackbone(nn.Module):
 
     def build_depth_pred_module(self):
         return nn.Sequential(
-            convbn_3d(self.cv_channels, self.cv_channels, 3, 1, 1, gn=self.GN),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(self.cv_channels, 1, 3, 1, 1, bias=False))
-        """
-        return nn.Sequential(
             ConvModule(
                 self.cv_channels,
                 self.cv_channels,
@@ -143,25 +124,6 @@ class DfMBackbone(nn.Module):
                 conv_cfg=dict(type='Conv3d'),
                 norm_cfg=self.norm_cfg),
             nn.Conv3d(self.cv_channels, 1, 3, 1, 1, bias=False))
-        """
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.Conv3d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[
-                    2] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm3d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.bias.data.zero_()
 
     def mono_stereo_aggregate(self, stereo_depth_conv_module,
                               mono_depth_conv_module, cost1, mono_cost1,
@@ -285,7 +247,6 @@ def build_dfm_cost(cur_feats,
     # apply 3D transformation to get original cur and prev 3D grid
     for idx in range(batch_size):
         # grid3d: (D*H_out*W_out, 3)
-        """import pdb pdb.set_trace()"""
         grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx][:3])
         # grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx])
         # only support flip transformation for now

@@ -3,15 +3,15 @@
 set -x
 
 CKPT_PATH=/mnt/lustre/wangtai/mmdet3d-prerelease/work_dirs
-PARTITION=robot
-JOB_NAME=test-dfm-final-noligainit-v2
-TASK=test-dfm-final-noligainit-v2
+PARTITION=mm_det
+JOB_NAME=dfm-repro-benchmark-v4
+TASK=dfm-repro-benchmark-v4
 CONFIG=configs/dfm/dfm_r34_1x8_kitti-3d-3class.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/latest.pth
 GPUS=8
 GPUS_PER_NODE=8
-XNODE=SH-IDC1-10-140-0-[131,137,168,230],SH-IDC1-10-140-1-[61]
+XNODE=SH-IDC1-10-140-0-[131,137,168,230,246],SH-IDC1-10-140-1-[61,104]
 PORT=29301
 
 PYTHONPATH="$(dirname $0)/..":$PYTHONPATH \

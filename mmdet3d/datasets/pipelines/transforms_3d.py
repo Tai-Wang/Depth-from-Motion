@@ -62,14 +62,18 @@ class GenerateDepthMap(object):
         # Note: the input points should be not in the real lidar system
         # instead it is in the pseudo lidar system
         # which shares the same direction of xyz but different origin
-        pseudo_points = (input_dict['points'].tensor)[:, :3].numpy()
         cam2img = input_dict['cam2img']
-        pseudo2cam_T = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
-                                dtype=np.float32)
-        homo_pseudo_points = np.concatenate(
-            [pseudo_points,
-             np.ones([pseudo_points.shape[0], 1])], axis=-1)
-        rect_points = homo_pseudo_points @ pseudo2cam_T
+        if 'rect_points' in input_dict:
+            rect_points = input_dict['rect_points']
+        else:
+            pseudo_points = (input_dict['points'].tensor)[:, :3].numpy()
+            pseudo2cam_T = np.array(
+                [[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
+                dtype=np.float32)
+            homo_pseudo_points = np.concatenate(
+                [pseudo_points,
+                 np.ones([pseudo_points.shape[0], 1])], axis=-1)
+            rect_points = homo_pseudo_points @ pseudo2cam_T
         """
         # TODO: replace the LIGA projection with the accurate points_cam2img
         cam_points = points_cam2img(rect_points, cam2img, with_depth=True)
@@ -91,11 +95,9 @@ class GenerateDepthMap(object):
         depth_img = np.zeros(input_dict['pad_shape'][:2], dtype=np.float32)
         iy = np.round(img_coords[:, 1]).astype(np.int64)
         ix = np.round(img_coords[:, 0]).astype(np.int64)
-        # depth > 0 mask in LIGA merged here
         img_shape = input_dict['img_shape'][:2]
-        mask = (iy >= 0) & (ix >= 0) & (iy < img_shape[0]) & (ix <
-                                                              img_shape[1]) & (
-                                                                  depths > 0)
+        mask = (iy >= 0) & (ix >= 0) & (iy < img_shape[0]) & (
+            ix < img_shape[1])
         iy, ix = iy[mask], ix[mask]
         depth_img[iy, ix] = depths[mask]
         input_dict['depth_img'] = depth_img
@@ -252,6 +254,8 @@ class RandomFlip3D(RandomFlip):
                 input_dict['cam2img'][0][2] = w - input_dict['cam2img'][0][2]
         if 'calib' in input_dict:
             input_dict['calib'].flipl(input_dict['img_shape'][1])
+            # Hack for points filter
+            input_dict['ori_calib'].flipl(input_dict['img_shape'][1])
         if 'centers2d' in input_dict:
             assert self.sync_2d is True and direction == 'horizontal', \
                 'Only support sync_2d=True and horizontal flip with images'
@@ -1000,8 +1004,9 @@ class PointsRangeFilter(object):
         point_cloud_range (list[float]): Point cloud range.
     """
 
-    def __init__(self, point_cloud_range):
+    def __init__(self, point_cloud_range, height_filter=True):
         self.pcd_range = np.array(point_cloud_range, dtype=np.float32)
+        self.height_filter = height_filter
 
     def __call__(self, input_dict):
         """Call function to filter points by the range.
@@ -1014,19 +1019,24 @@ class PointsRangeFilter(object):
                 and 'pts_semantic_mask' keys are updated in the result dict.
         """
         points = input_dict['points']
-        points_mask = points.in_range_3d(self.pcd_range)
+        points_mask = points.in_range_3d(
+            self.pcd_range, height_filter=self.height_filter)
         clean_points = points[points_mask]
         input_dict['points'] = clean_points
         points_mask = points_mask.numpy()
 
         pts_instance_mask = input_dict.get('pts_instance_mask', None)
         pts_semantic_mask = input_dict.get('pts_semantic_mask', None)
+        rect_points = input_dict.get('rect_points', None)
 
         if pts_instance_mask is not None:
             input_dict['pts_instance_mask'] = pts_instance_mask[points_mask]
 
         if pts_semantic_mask is not None:
             input_dict['pts_semantic_mask'] = pts_semantic_mask[points_mask]
+
+        if rect_points is not None:
+            input_dict['rect_points'] = rect_points[points_mask]
 
         return input_dict
 
@@ -1035,6 +1045,60 @@ class PointsRangeFilter(object):
         repr_str = self.__class__.__name__
         repr_str += f'(point_cloud_range={self.pcd_range.tolist()})'
         return repr_str
+
+
+@PIPELINES.register_module()
+class PointsFoVFilter(object):
+    """Filter points out of FoV."""
+
+    def __call__(self, input_dict):
+        """Call function to filter points by the range.
+
+        Args:
+            input_dict (dict): Result dict from loading pipeline.
+
+        Returns:
+            dict: Results after filtering, 'points', 'pts_instance_mask'
+                and 'pts_semantic_mask' keys are updated in the result dict.
+        """
+        assert 'points' in input_dict
+        assert 'ori_shape' in input_dict
+        assert 'ori_calib' in input_dict
+        points = input_dict['points']
+        img_shape = input_dict['ori_shape']
+        calib = input_dict['ori_calib']
+
+        if 'rect_points' not in input_dict:
+            pseudo_points = (input_dict['points'].tensor)[:, :3].numpy()
+            pseudo2cam_T = np.array(
+                [[0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, 0]],
+                dtype=np.float32)
+            homo_pseudo_points = np.concatenate(
+                [pseudo_points,
+                 np.ones([pseudo_points.shape[0], 1])], axis=-1)
+            rect_points = homo_pseudo_points @ pseudo2cam_T
+            input_dict['rect_points'] = rect_points
+
+        pts_img, pts_rect_depth = calib.rect_to_img(rect_points)
+        val_flag_1 = np.logical_and(pts_img[:, 0] > 0,
+                                    pts_img[:, 0] < img_shape[1] - 1)
+        val_flag_2 = np.logical_and(pts_img[:, 1] > 0,
+                                    pts_img[:, 1] < img_shape[0] - 1)
+        val_flag_merge = np.logical_and(val_flag_1, val_flag_2)
+        pts_valid_flag = np.logical_and(val_flag_merge, pts_rect_depth >= 0)
+        input_dict['points'] = points[pts_valid_flag]
+        input_dict['rect_points'] = rect_points[pts_valid_flag]
+
+        pts_instance_mask = input_dict.get('pts_instance_mask', None)
+        pts_semantic_mask = input_dict.get('pts_semantic_mask', None)
+
+        if pts_instance_mask is not None:
+            input_dict['pts_instance_mask'] = pts_instance_mask[pts_valid_flag]
+
+        if pts_semantic_mask is not None:
+            input_dict['pts_semantic_mask'] = pts_semantic_mask[pts_valid_flag]
+
+        return input_dict
 
 
 @PIPELINES.register_module()

@@ -151,7 +151,7 @@ class Collect3D(object):
                    'affine_aug', 'sweep_img_metas', 'ori_cam2img',
                    'cam2global', 'crop_offset', 'lidar2cam', 'ori_lidar2img',
                    'num_ref_frames', 'num_views', 'ego2global',
-                   'img_crop_offset')):
+                   'img_crop_offset', 'cur2prevs')):
         self.keys = keys
         self.meta_keys = meta_keys
 

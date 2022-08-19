@@ -18,9 +18,10 @@ from .transforms_3d import (AffineResize, BackgroundPointsFilter,
                             MultiViewImagePhotoMetricDistortion,
                             MultiViewImageResize3D, MultiViewRandomFlip3D,
                             ObjectNameFilter, ObjectNoise, ObjectRangeFilter,
-                            ObjectSample, PointSample, PointShuffle,
-                            PointsRangeFilter, RandomDropPointsColor,
-                            RandomFlip3D, RandomJitterPoints, RandomShiftScale,
+                            ObjectSample, PointSample, PointsFoVFilter,
+                            PointShuffle, PointsRangeFilter,
+                            RandomDropPointsColor, RandomFlip3D,
+                            RandomJitterPoints, RandomShiftScale,
                             VoxelBasedPointSampler)
 
 __all__ = [
@@ -38,5 +39,5 @@ __all__ = [
     'MultiViewImagePhotoMetricDistortion', 'MultiViewImageResize3D',
     'LoadMultiViewDepthFromFiles', 'MultiViewRandomFlip3D',
     'MultiViewImageCrop3D', 'DepthPipeline', 'VideoPipeline',
-    'IgnoredObjectFilter'
+    'IgnoredObjectFilter', 'PointsFoVFilter'
 ]

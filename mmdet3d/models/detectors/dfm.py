@@ -10,8 +10,8 @@ from mmdet.models.detectors import BaseDetector
 from ..builder import (DETECTORS, build_backbone, build_detector, build_head,
                        build_neck)
 from ..dense_heads import LIGAATSSHead
-from .imitation_utils import (NormalizeLayer, WeightedL2WithSigmaLoss,
-                              dist_reduce_mean)
+from ..utils.common_utils import dist_reduce_mean
+from .imitation_utils import NormalizeLayer, WeightedL2WithSigmaLoss
 
 
 @DETECTORS.register_module()
@@ -283,43 +283,11 @@ class DfM(BaseDetector):
         cur_stereo_feat, cur_sem_feat = self.neck(cur_feats)
         prev_stereo_feat, prev_sem_feat = self.neck(prev_feats)
         # derive cur2prevs
-        cur_pose = torch.tensor(
-            [img_meta['cam2global'] for img_meta in img_metas],
-            device=img.device)[:, None, :, :]  # (B, 1, 4, 4)
-        prev_poses = []
-        for img_meta in img_metas:
-            sweep_img_metas = img_meta['sweep_img_metas']
-            prev_poses.append([
-                sweep_img_meta['cam2global']
-                for sweep_img_meta in sweep_img_metas
-            ])
-        prev_poses = torch.tensor(prev_poses, device=img.device)
-        pad_prev_cam2global = torch.eye(4)[None, None].expand(
-            batch_size, N - 1, 4, 4).to(img.device)
-        pad_prev_cam2global[:, :, :prev_poses.shape[-2], :prev_poses.
-                            shape[-1]] = prev_poses
-        pad_cur_cam2global = torch.eye(4)[None,
-                                          None].expand(batch_size, 1, 4,
-                                                       4).to(img.device)
-        pad_cur_cam2global[:, :, :cur_pose.shape[-2], :cur_pose.
-                           shape[-1]] = cur_pose
-        # (B, N-1, 4, 4) * (B, 1, 4, 4) -> (B, N-1, 4, 4)
-        # torch.linalg.solve is faster and more numerically stable
-        # than torch.matmul(torch.linalg.inv(A), B)
-        # empirical results show that torch.linalg.solve can derive
-        # almost the same result with np.linalg.inv
-        # while torch.linalg.inv can not
-        cur2prevs = torch.linalg.solve(pad_prev_cam2global, pad_cur_cam2global)
-        """
-        import pdb
-        pdb.set_trace()
-        cur2prevs[0] = torch.tensor(
-            [[[ 1.0000e+00,  7.2400e-05,  8.8020e-05,  1.3661e-03],
-              [-7.2018e-05,  1.0000e+00, -4.6973e-05,  1.9263e-03],
-              [-8.7991e-05,  4.6382e-05,  1.0000e+00,  4.5071e-03],
-              [ 0.0000e+00,  0.0000e+00,  0.0000e+00,  1.0000e+00]]],
-            device='cuda:0')
-        """
+        # torch version seems to be unstable than numpy
+        cur2prevs = torch.tensor(
+            [img_meta['cur2prevs'] for img_meta in img_metas],
+            device=img.device,
+            dtype=img.dtype)  # (B, N-1, 4, 4)
         for meta_idx, img_meta in enumerate(img_metas):
             img_meta['cur2prevs'] = cur2prevs[meta_idx]
         # stereo backbone for depth estimation
@@ -339,14 +307,6 @@ class DfM(BaseDetector):
                       points=None,
                       centers2d=None,
                       **kwargs):
-        """
-        import pdb
-        pdb.set_trace()
-        img[0, 0] = torch.from_numpy(
-            np.load('/mnt/lustre/wangtai/calib_left_img.npy')).to(img.device)
-        img[0, 1] = torch.from_numpy(
-            np.load('/mnt/lustre/wangtai/calib_right_img.npy')).to(img.device)
-        """
         mono_stereo_costs, stereo_feats, mono_feats, cur_sem_feat = \
             self.extract_feat(img, img_metas)
 
@@ -445,6 +405,7 @@ class DfM(BaseDetector):
         Args:
             img (torch.Tensor): Input images of shape (N, C_in, H, W).
             img_metas (list): Image metas.
+
         Returns:
             list[dict]: Predicted 3d boxes.
         """

@@ -292,7 +292,11 @@ train_pipeline = [
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
-    dict(type='PointsRangeFilter', point_cloud_range=point_cloud_range),
+    dict(type='PointsFoVFilter'),
+    dict(
+        type='PointsRangeFilter',
+        point_cloud_range=point_cloud_range,
+        height_filter=False),
     dict(type='GenerateDepthMap', generate_fgmask=True),
     dict(
         type='ObjectRangeFilter',
@@ -336,26 +340,23 @@ data = dict(
     samples_per_gpu=1,
     workers_per_gpu=1,
     train=dict(
-        type='RepeatDataset',
-        times=2,
-        dataset=dict(
-            type=dataset_type,
-            data_root=data_root,
-            ann_file=data_root + 'kitti_infos_train.pkl',
-            split='training',
-            pts_prefix='velodyne_reduced',
-            pipeline=train_pipeline,
-            modality=input_modality,
-            classes=class_names,
-            test_mode=False,
-            pseudo_lidar=True,
-            use_similar_cls=True)),
+        type=dataset_type,
+        data_root=data_root,
+        ann_file=data_root + 'kitti_infos_train.pkl',
+        split='training',
+        pts_prefix='velodyne',
+        pipeline=train_pipeline,
+        modality=input_modality,
+        classes=class_names,
+        test_mode=False,
+        pseudo_lidar=True,
+        use_similar_cls=True),
     val=dict(
         type=dataset_type,
         data_root=data_root,
         ann_file=data_root + 'kitti_infos_val.pkl',
         split='training',
-        pts_prefix='velodyne_reduced',
+        pts_prefix='velodyne',
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
@@ -366,7 +367,7 @@ data = dict(
         data_root=data_root,
         ann_file=data_root + 'kitti_infos_val.pkl',
         split='training',
-        pts_prefix='velodyne_reduced',
+        pts_prefix='velodyne',
         pipeline=test_pipeline,
         modality=input_modality,
         classes=class_names,
@@ -374,17 +375,15 @@ data = dict(
         pseudo_lidar=True))
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
-# although grad_clip is set in original code, it is not used
-optimizer_config = dict(grad_clip=None)
-# optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
+optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
 # learning policy
 lr_config = dict(
     policy='LIGA',
     warmup='cosine',  # cosine in original implementation
     warmup_iters=464,  # 464 for original implementation
     warmup_ratio=0.1,
-    step=[25])
-total_epochs = 30
+    step=[50])
+total_epochs = 60
 runner = dict(type='EpochBasedRunner', max_epochs=total_epochs)
 
 checkpoint_config = dict(interval=1, max_keep_ckpts=1)

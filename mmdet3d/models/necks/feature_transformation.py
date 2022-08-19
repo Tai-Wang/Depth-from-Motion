@@ -1,17 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.data
+from mmcv.cnn import ConvModule
+from mmcv.runner import BaseModule
 
-from mmdet3d.models.utils import convbn_3d
 from mmdet.models.builder import NECKS
 
 
 @NECKS.register_module()
-class FrustumToVoxel(nn.Module):
+class FrustumToVoxel(BaseModule):
 
     def __init__(
         self,
@@ -53,17 +52,6 @@ class FrustumToVoxel(nn.Module):
         for i in range(self.num_3dconvs):
             voxel_convs.append(
                 nn.Sequential(
-                    convbn_3d(
-                        voxel_channels if i == 0 else self.out_channels,
-                        self.out_channels,
-                        3,
-                        1,
-                        1,
-                        gn=self.GN), nn.ReLU(inplace=True)))
-            """
-            from mmcv.cnn import ConvModule
-            voxel_convs.append(
-                nn.Sequential(
                     ConvModule(
                         voxel_channels if i == 0 else self.out_channels,
                         self.out_channels,
@@ -72,29 +60,10 @@ class FrustumToVoxel(nn.Module):
                         padding=1,
                         conv_cfg=dict(type='Conv3d'),
                         norm_cfg=norm_cfg)))
-            """
 
         self.voxel_convs = nn.Sequential(*voxel_convs)
         self.voxel_pool = nn.AvgPool3d((4, 1, 1), stride=(4, 1, 1))
         self.init_weights()
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.Conv3d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[
-                    2] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm3d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.bias.data.zero_()
 
     def forward(self,
                 stereo_feat,
@@ -118,10 +87,6 @@ class FrustumToVoxel(nn.Module):
             c3d = coordinates_3d.view(-1, 3)
             # in pseudo lidar coord
             c3d = project_pseudo_lidar_to_rectcam(c3d)
-            """
-            import pdb
-            pdb.set_trace()
-            """
             # coord_img = project_rect_to_image(
             #     c3d, cam2imgs[i].float().cuda())
             coord_img = project_rect_to_image(c3d,
