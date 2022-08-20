@@ -79,7 +79,7 @@ def save_label(frame, objects, version='multi-view', cam_sync=True):
             objects.objects.append(o)
 
 
-parser = argparse.ArgumentParser(description='Data converter arg parser')
+parser = argparse.ArgumentParser(description='Waymo GT Generator arg parser')
 parser.add_argument(
     '--root-path',
     type=str,
@@ -115,10 +115,10 @@ if __name__ == '__main__':
         file_client_args = dict(
             backend='petrel',
             path_mapping=dict({
-                './data/kitti/':
-                's3://openmmlab/datasets/detection3d/kitti/',
-                'data/kitti/':
-                's3://openmmlab/datasets/detection3d/kitti/'
+                './data/waymo/':
+                's3://openmmlab/datasets/detection3d/waymo-v1.3.1/',
+                'data/waymo/':
+                's3://openmmlab/datasets/detection3d/waymo-v1.3.1/'
             }))
     tfrecord_pathnames = glob(join(load_dir, '*.tfrecord'))
     if file_client_args['backend'] == 'disk':
@@ -148,6 +148,6 @@ if __name__ == '__main__':
         progress_bar.update()
 
     # Write objects to a file.
-    f = open(join(out_dir, 'fov_gt.bin'), 'wb')
+    f = open(join(out_dir, 'cam_gt.bin'), 'wb')
     f.write(objects.SerializeToString())
     f.close()

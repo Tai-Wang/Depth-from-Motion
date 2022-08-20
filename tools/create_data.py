@@ -29,7 +29,8 @@ def kitti_data_prep(root_path,
         with_plane (bool, optional): Whether to use plane information.
             Default: False.
     """
-    kitti.create_kitti_info_file(root_path, info_prefix, with_plane)
+    kitti.create_kitti_info_file(
+        root_path, info_prefix, with_plane, file_client_args=file_client_args)
     # kitti.create_reduced_point_cloud(root_path, info_prefix)
 
     info_train_path = osp.join(root_path, f'{info_prefix}_infos_train.pkl')
@@ -270,7 +271,8 @@ if __name__ == '__main__':
             info_prefix=args.extra_tag,
             version=args.version,
             out_dir=args.out_dir,
-            with_plane=args.with_plane)
+            with_plane=args.with_plane,
+            file_client_args=file_client_args)
     elif args.dataset == 'nuscenes' and args.version != 'v1.0-mini':
         train_version = f'{args.version}-trainval'
         nuscenes_data_prep(

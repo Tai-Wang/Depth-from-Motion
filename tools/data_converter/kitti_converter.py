@@ -172,7 +172,8 @@ def create_kitti_info_file(data_path,
                            pkl_prefix='kitti',
                            with_plane=False,
                            save_path=None,
-                           relative_path=True):
+                           relative_path=True,
+                           file_client_args=dict(backend='disk')):
     """Create info file of KITTI dataset.
 
     Given the raw data, generate its related info file in pkl format.
@@ -205,8 +206,13 @@ def create_kitti_info_file(data_path,
         calib=True,
         with_plane=with_plane,
         image_ids=train_img_ids,
-        relative_path=relative_path)
-    _calculate_num_points_in_gt(data_path, kitti_infos_train, relative_path)
+        relative_path=relative_path,
+        file_client_args=file_client_args)
+    _calculate_num_points_in_gt(
+        data_path,
+        kitti_infos_train,
+        relative_path,
+        file_client_args=file_client_args)
     filename = save_path / f'{pkl_prefix}_infos_train.pkl'
     print(f'Kitti info train file is saved to {filename}')
     mmcv.dump(kitti_infos_train, filename)
@@ -217,8 +223,13 @@ def create_kitti_info_file(data_path,
         calib=True,
         with_plane=with_plane,
         image_ids=val_img_ids,
-        relative_path=relative_path)
-    _calculate_num_points_in_gt(data_path, kitti_infos_val, relative_path)
+        relative_path=relative_path,
+        file_client_args=file_client_args)
+    _calculate_num_points_in_gt(
+        data_path,
+        kitti_infos_val,
+        relative_path,
+        file_client_args=file_client_args)
     filename = save_path / f'{pkl_prefix}_infos_val.pkl'
     print(f'Kitti info val file is saved to {filename}')
     mmcv.dump(kitti_infos_val, filename)
@@ -234,7 +245,8 @@ def create_kitti_info_file(data_path,
         calib=True,
         with_plane=False,
         image_ids=test_img_ids,
-        relative_path=relative_path)
+        relative_path=relative_path,
+        file_client_args=file_client_args)
     filename = save_path / f'{pkl_prefix}_infos_test.pkl'
     print(f'Kitti info test file is saved to {filename}')
     mmcv.dump(kitti_infos_test, filename)
