@@ -18,7 +18,8 @@ class DfMBackbone(BaseModule):
         self,
         in_channels,
         num_hg=1,
-        downsample_factor=4,
+        cost_sample_factor=4,
+        feat_sample_factor=1,
         cv_channels=32,  # cost volume channels
         depth_cfg=dict(
             mode='UD',
@@ -36,7 +37,8 @@ class DfMBackbone(BaseModule):
         self.GN = True  # TODO: replace it with norm_cfg
 
         # stereo config
-        self.downsample_factor = downsample_factor
+        self.cost_sample_factor = cost_sample_factor
+        self.feat_sample_factor = feat_sample_factor
         self.num_hg = num_hg
 
         # volume config
@@ -160,7 +162,8 @@ class DfMBackbone(BaseModule):
             cur_stereo_feats,
             prev_stereo_feats,
             downsampled_depth,
-            self.downsample_factor,
+            self.feat_sample_factor,
+            self.cost_sample_factor,
             ori_cam2imgs,
             cur2prevs[0],
             img_metas[0]['ori_shape'][:2],
@@ -214,7 +217,8 @@ class DfMBackbone(BaseModule):
 def build_dfm_cost(cur_feats,
                    prev_feats,
                    depths,
-                   sample_factor,
+                   feat_sample_factor,
+                   cost_sample_factor,
                    cam2imgs,
                    cur2prevs,
                    img_shape,
@@ -233,12 +237,17 @@ def build_dfm_cost(cur_feats,
     device = depths.device
     img_crop_offset = torch.tensor(img_crop_offset, device=device)
     batch_size = cur_feats.shape[0]
-    h, w = cur_feats.shape[-2:]
+    h_in, w_in = cur_feats.shape[-2:]
     num_depths = depths.shape[-1]
-    h_out = round(h / sample_factor)
-    w_out = round(w / sample_factor)
-    ws = (torch.linspace(0, w_out - 1, w_out) * sample_factor).to(device)
-    hs = (torch.linspace(0, h_out - 1, h_out) * sample_factor).to(device)
+    h_out = round(h_in / cost_sample_factor)
+    w_out = round(w_in / cost_sample_factor)
+    # h = round(h_in * feat_sample_factor)
+    # w = round(w_in * feat_sample_factor)
+    # need to upsample to the original img size for using ori_cam2img
+    ws = (torch.linspace(0, w_out - 1, w_out) * feat_sample_factor *
+          cost_sample_factor).to(device)
+    hs = (torch.linspace(0, h_out - 1, h_out) * feat_sample_factor *
+          cost_sample_factor).to(device)
     ds_3d, ys_3d, xs_3d = torch.meshgrid(depths, hs, ws)
     # grid: (D, H_out, W_out, 3)
     grid = torch.stack([xs_3d, ys_3d, ds_3d], dim=-1)
@@ -246,6 +255,9 @@ def build_dfm_cost(cur_feats,
     grid = grid[None].repeat(batch_size, 1, 1, 1, 1)
     # apply 3D transformation to get original cur and prev 3D grid
     for idx in range(batch_size):
+        # recover the canonical space: crop back -> scale back -> flip back
+        grid[..., :2] += img_crop_offset
+        grid[..., :2] /= img_scale_factor
         # grid3d: (D*H_out*W_out, 3)
         grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx][:3])
         # grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx])
@@ -271,12 +283,15 @@ def build_dfm_cost(cur_feats,
     prev_grid *= img_scale_factor
     cur_grid -= img_crop_offset
     prev_grid -= img_crop_offset
+    # downsample to input feature size
+    cur_grid /= feat_sample_factor
+    prev_grid /= feat_sample_factor
     # normalize grid
     # w-1 because the index is from [0, shape-1]
-    cur_grid[..., 0] = cur_grid[..., 0] / (w - 1) * 2 - 1
-    cur_grid[..., 1] = cur_grid[..., 1] / (h - 1) * 2 - 1
-    prev_grid[..., 0] = prev_grid[..., 0] / (w - 1) * 2 - 1
-    prev_grid[..., 1] = prev_grid[..., 1] / (h - 1) * 2 - 1
+    cur_grid[..., 0] = cur_grid[..., 0] / (w_in - 1) * 2 - 1
+    cur_grid[..., 1] = cur_grid[..., 1] / (h_in - 1) * 2 - 1
+    prev_grid[..., 0] = prev_grid[..., 0] / (w_in - 1) * 2 - 1
+    prev_grid[..., 1] = prev_grid[..., 1] / (h_in - 1) * 2 - 1
     # TOCHECK: sample or the original better?
     cur_cost_feats = F.grid_sample(
         cur_feats,

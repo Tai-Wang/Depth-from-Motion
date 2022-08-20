@@ -142,6 +142,8 @@ class LIGAAnchor3DHead(Anchor3DHead):
         if self.reduce_avg_factor:
             avg_factor = dist_reduce_mean(
                 cls_score.new_tensor(num_total_samples))
+        else:
+            avg_factor = cls_score.new_tensor(num_total_samples)
 
         loss_cls = self.loss_cls(
             cls_score,

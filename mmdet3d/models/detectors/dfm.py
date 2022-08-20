@@ -79,7 +79,7 @@ class DfM(BaseDetector):
         if depth_cfg is not None:
             # TODO: only use default value
             self.downsampled_depth_offset = 0.5
-            self.downsample_factor = depth_cfg['downsample_factor']
+            self.depth_downsample_factor = depth_cfg['downsample_factor']
             self.prepare_depth(depth_cfg)
             # TODO: remove the param dependency
             if feature_transformation is not None:
@@ -88,8 +88,9 @@ class DfM(BaseDetector):
                 self.backbone_stereo.downsampled_depth = \
                     self.downsampled_depth
                 self.depth_head.depth_samples = self.depth
-                self.depth_head.downsample_factor = self.downsample_factor
-                assert self.downsample_factor == \
+                self.depth_head.downsample_factor = \
+                    self.depth_downsample_factor
+                assert self.depth_downsample_factor == \
                     self.depth_head.downsample_factor
         if voxel_cfg is not None:
             self.prepare_coordinates_3d(voxel_cfg)
@@ -158,12 +159,12 @@ class DfM(BaseDetector):
               f"{depth_cfg['depth_max']}, interval {depth_interval}")
         # prepare downsampled depth
         self.downsampled_depth = torch.zeros(
-            (depth_cfg['num_bins'] // self.downsample_factor),
+            (depth_cfg['num_bins'] // self.depth_downsample_factor),
             dtype=torch.float32)
-        for i in range(depth_cfg['num_bins'] // self.downsample_factor):
+        for i in range(depth_cfg['num_bins'] // self.depth_downsample_factor):
             self.downsampled_depth[i] = (
                 i + self.downsampled_depth_offset
-            ) * self.downsample_factor * depth_interval + \
+            ) * self.depth_downsample_factor * depth_interval + \
                 depth_cfg['depth_min']
         # prepare depth
         self.depth = torch.zeros((depth_cfg['num_bins']), dtype=torch.float32)

@@ -4,9 +4,9 @@ set -x
 
 CKPT_PATH=/mnt/lustre/wangtai/mmdet3d-prerelease/work_dirs
 PARTITION=mm_det
-JOB_NAME=dfm-repro-benchmark-v4
-TASK=dfm-repro-benchmark-v4
-CONFIG=configs/dfm/dfm_r34_1x8_kitti-3d-3class.py
+JOB_NAME=dfm-repro-benchmark-wodistnorm-v2
+TASK=dfm-repro-benchmark-wodistnorm-v2
+CONFIG=configs/dfm/dfm_r34_1x8_kitti-3d-3class_wodistnorm.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/latest.pth
 GPUS=8

@@ -120,7 +120,7 @@ model = dict(
         in_channels=32,  # should be the same of stereo_channels[-1]
         cv_channels=32,  # cost volume channels
         num_hg=1,  # num of hourglass blocks
-        downsample_factor=4,
+        cost_sample_factor=4,
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
     depth_head=dict(
         type='DepthHead',
