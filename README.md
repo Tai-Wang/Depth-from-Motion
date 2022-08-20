@@ -8,7 +8,7 @@ This repository is the official implementation for DfM and MV-FCOS3D++.
 
 ## Introduction
 
-This is an official release of the paper **Monocular 3D Object Detection with Depth from Motion** & **MV-FCOS3D++: Multi-View Camera-Only 4D Object Detection with Pretrained Monocular Backbones**.
+This is an official release of the paper: `Monocular 3D Object Detection with Depth from Motion` and `MV-FCOS3D++: Multi-View Camera-Only 4D Object Detection with Pretrained Monocular Backbones`.
 
 The code is still going through large refactoring. We plan to re-organize this repo as a combination of core codes for this project and mmdet3d requirement finally.
 
@@ -38,7 +38,9 @@ The complete model checkpoints and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.3570 | 20.2645 | 17.4731 | [model](https://drive.google.com/file/d/1EyNPt2j1-MVwmaFu3WaLTcEWj1JZxHBU/view?usp=sharing)|
+| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.3569 | 19.5483 | 17.1763<sup>1</sup> | [model](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/epoch_60.pth)\|[log](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/20220819_205904.log.json)|
+
+[1] This reproduced performance may have some degree of fluctuation due to the limited training samples and sensitive metrics. From my experience of multiple runs, the average performance may vary from 26/18/16 to 29/20/17, depending on the effect of corner cases (caused by matrix inverse computation or other reasons). Please stay tuned for a more stable version.
 
 ### MV-FCOS3D++
 
@@ -50,10 +52,33 @@ We have released the preliminary config for reproducing the results on the Waymo
 
 The complete model configs and logs will be released soon.
 
+#### Pretrained FCOS3D++ (without customized finetuning)
+
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  mAPL  | mAP | mAPH | Download |
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet101+DCN](./configs/dfm/https://github.com/Tai-Wang/Depth-from-Motion/blob/main/configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - |   |  |  |-|
+| [ResNet101+DCN](./configs/pgd/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d.py) | - | - | - | 0.2041 | 0.286 | 0.2701 | [log](https://download.openmmlab.com/mim-example/dfm/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d/20220808_221519.log.json) |
+| above @ Car | - | - | - | 0.4105 | 0.5574 | 0.5483 | |
+| above @ Pedestrian | - | - | - | 0.1877 | 0.2785 | 0.2421 | |
+| above @ Cyclist | - | - | - | 0.0143 | 0.0221 | 0.02 | |
 
+#### MV-FCOS3D++ with Pretrained FCOS3D++
+
+|  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  mAPL  | mAP | mAPH | Download |
+| :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
+| [ResNet101+DCN](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 0.338 | 0.4665 | 0.4425| [log](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync/20220807_153735.log.json) |
+| above @ Car | - | - | - | 0.5269 | 0.6836 | 0.6747 | |
+| above @ Pedestrian | - | - | - | 0.2682 | 0.3847 | 0.341 | |
+| above @ Cyclist | - | - | - | 0.219 | 0.3311 | 0.3116 | |
+| [ResNet101+DCN+10 sweeps](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps.py) | - | - | - | 0.3514| 0.4798 | 0.4549 | [log1](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220808_170010.log.json) \| [log2](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220809_093358.log.json) |
+| above @ Car | - | - | - | 0.5544 | 0.7072 | 0.6979 | |
+| above @ Pedestrian | - | - | - | 0.276 | 0.395 | 0.351 | |
+| above @ Cyclist | - | - | - | 0.2239 | 0.3372 | 0.3159 | |
+| [ResNet101+DCN (slow infer)<sup>2</sup>](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 0.379 | 0.5215 | 0.4884| |
+| above @ Car | - | - | - | 0.5624 | 0.7315 | 0.7207 | |
+| above @ Pedestrian | - | - | - | 0.346 | 0.4901 | 0.4225 | |
+| above @ Cyclist | - | - | - | 0.2284 | 0.3429 | 0.3218 | |
+
+[2] "slow infer" refers to changing the nms setting to `nms_pre=4096` and `max_num=500` to increase the number of predictions such that the inference can get a better recall performance. It will slow down the inference procedure but significantly improves the final performance under the Waymo metric. **The same trick can also be applied to the 10-sweep config and other models.**
 
 ## Installation
 
@@ -142,6 +167,10 @@ mmdetection3d
 │   │   │   ├── ImageSets
 
 ```
+
+### Pretrained models
+
+For the KITTI implementation of DfM, we keep the LIGA-Stereo setting that has a LiDAR-based teacher for better supervision during training. Please download the teacher checkpoint (has been converted to mmdet3d-style) [here](https://download.openmmlab.com/mim-example/dfm/pretrained_models/mmdet3d-second-teacher.pth). It can make this network converge faster and bring ~1 AP performance gain. We will consider to replace it with other more direct supervision for simpler usage in the near future.
 
 ### Training and testing
 
