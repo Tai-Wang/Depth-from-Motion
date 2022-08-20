@@ -128,6 +128,8 @@ For Waymo, we need to additionally generate the ground truth bin file for camera
 python tools/create_waymo_gt_bin.py
 ```
 
+Then please follow the mmdet3d [tutorial for Waymo dataset](https://mmdetection3d.readthedocs.io/en/latest/datasets/waymo_det.html) for the pre-processing steps.
+
 The final data structure looks like below:
 
 ```text
@@ -165,7 +167,29 @@ mmdetection3d
 │   │   │   ├── cam_gt.bin
 │   │   ├── kitti_format
 │   │   │   ├── ImageSets
-
+│   │   │   ├── training
+│   │   │   │   ├── calib
+│   │   │   │   ├── image_0
+│   │   │   │   ├── image_1
+│   │   │   │   ├── image_2
+│   │   │   │   ├── image_3
+│   │   │   │   ├── image_4
+│   │   │   │   ├── label_0
+│   │   │   │   ├── label_1
+│   │   │   │   ├── label_2
+│   │   │   │   ├── label_3
+│   │   │   │   ├── label_4
+│   │   │   │   ├── label_all
+│   │   │   │   ├── pose
+│   │   │   │   ├── velodyne
+│   │   │   ├── testing
+│   │   │   │   ├── (the same as training)
+│   │   │   ├── waymo_gt_database
+│   │   │   ├── waymo_infos_trainval.pkl
+│   │   │   ├── waymo_infos_train.pkl
+│   │   │   ├── waymo_infos_val.pkl
+│   │   │   ├── waymo_infos_test.pkl
+│   │   │   ├── waymo_dbinfos_train.pkl
 ```
 
 ### Pretrained models
