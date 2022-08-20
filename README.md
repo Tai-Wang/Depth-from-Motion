@@ -38,9 +38,9 @@ The complete model checkpoints and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.3569 | 19.5483 | 17.1763<sup>1</sup> | [model](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/epoch_60.pth)\|[log](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/20220819_205904.log.json)|
+| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.3569 | 19.5483 | 17.1763<sup>1</sup> | model \| log |
 
-[1] This reproduced performance may have some degree of fluctuation due to the limited training samples and sensitive metrics. From my experience of multiple runs, the average performance may vary from 26/18/16 to 29/20/17, depending on the effect of corner cases (caused by matrix inverse computation or other reasons). Please stay tuned for a more stable version.
+[1] This reproduced performance may have some degree of fluctuation due to the limited training samples and sensitive metrics. From my experience of multiple runs, the average performance may vary from 26/18/16 to 29/20/17, depending on the effect of corner cases (caused by matrix inverse computation or other reasons). Please stay tuned for a more stable version. (Models and logs will be updated soon.)
 
 ### MV-FCOS3D++
 
