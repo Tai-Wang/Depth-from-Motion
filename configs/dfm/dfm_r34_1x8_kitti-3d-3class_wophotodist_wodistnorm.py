@@ -150,6 +150,7 @@ model = dict(
         norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)),
     bbox_head_3d=dict(
         type='LIGAAnchor3DHead',
+        reduce_avg_factor=False,
         num_classes=3,
         in_channels=64,
         feat_channels=64,
@@ -289,7 +290,6 @@ train_pipeline = [
                 crop_size=(320, 1280),
                 rel_offset_h=(1, 1),
                 rel_offset_w=(0.5, 0.5)),
-            dict(type='PhotoMetricDistortion'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),

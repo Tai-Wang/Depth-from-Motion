@@ -289,7 +289,6 @@ train_pipeline = [
                 crop_size=(320, 1280),
                 rel_offset_h=(1, 1),
                 rel_offset_w=(0.5, 0.5)),
-            dict(type='PhotoMetricDistortion'),
             dict(type='Normalize', **img_norm_cfg),
             dict(type='Pad', size_divisor=32),
         ]),
