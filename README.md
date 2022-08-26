@@ -39,9 +39,9 @@ The complete model checkpoints and logs will be released soon.
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
 | [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 28.8421 | 19.5941 | 17.3993<sup>1</sup> | [model](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/epoch_59.pth) \| [log](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/20220824_215725.log.json) |
-| above @ BEV AP (IoU 0.7) | - | - | - | 40.5335 | 27.7522 | 24.5844 | |
-| above @ 3D AP (IoU 0.5) | - | - | - | 70.1911 | 50.9922 | 47.4113 | |
-| above @ BEV AP (IoU 0.5) | - | - | - | 74.2643 | 55.8107 | 52.2759 | |
+| above @ BEV AP<br>(IoU 0.7) | - | - | - | 40.5335 | 27.7522 | 24.5844 | |
+| above @ 3D AP<br>(IoU 0.5) | - | - | - | 70.1911 | 50.9922 | 47.4113 | |
+| above @ BEV AP<br>(IoU 0.5) | - | - | - | 74.2643 | 55.8107 | 52.2759 | |
 
 [1] This reproduced performance may have some degree of fluctuation due to the limited training samples and sensitive metrics. From my experience of multiple runs, the average performance may vary from 26/18/16 to 29/20/17, depending on the effect of corner cases (caused by matrix inverse computation or other reasons). Please stay tuned for a more stable version. (Models and logs will be updated soon.)
 
@@ -59,27 +59,27 @@ The complete model configs and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  mAPL  | mAP | mAPH | Download |
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet101+DCN](./configs/pgd/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d.py) | - | - | - | 0.2041 | 0.286 | 0.2701 | [log](https://download.openmmlab.com/mim-example/dfm/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d/20220808_221519.log.json) |
-| above @ Car | - | - | - | 0.4105 | 0.5574 | 0.5483 | |
-| above @ Pedestrian | - | - | - | 0.1877 | 0.2785 | 0.2421 | |
-| above @ Cyclist | - | - | - | 0.0143 | 0.0221 | 0.02 | |
+| [ResNet101+DCN](./configs/pgd/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d.py) | - | - | - | 20.41 | 28.6 | 27.01 | [log](https://download.openmmlab.com/mim-example/dfm/pgd_r101_fpn_gn-head_dcn_3x16_2x_waymoD3-mv3d/20220808_221519.log.json) |
+| above @ Car | - | - | - | 41.05 | 55.74 | 54.83 | |
+| above @ Pedestrian | - | - | - | 18.77 | 27.85 | 24.21 | |
+| above @ Cyclist | - | - | - | 1.43 | 2.21 | 2.0 | |
 
 #### MV-FCOS3D++ with Pretrained FCOS3D++
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  mAPL  | mAP | mAPH | Download |
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet101+DCN](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 0.338 | 0.4665 | 0.4425| [log](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync/20220807_153735.log.json) |
-| above @ Car | - | - | - | 0.5269 | 0.6836 | 0.6747 | |
-| above @ Pedestrian | - | - | - | 0.2682 | 0.3847 | 0.341 | |
-| above @ Cyclist | - | - | - | 0.219 | 0.3311 | 0.3116 | |
-| [ResNet101+DCN+10 sweeps](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps.py) | - | - | - | 0.3514| 0.4798 | 0.4549 | [log1](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220808_170010.log.json) \| [log2](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220809_093358.log.json) |
-| above @ Car | - | - | - | 0.5544 | 0.7072 | 0.6979 | |
-| above @ Pedestrian | - | - | - | 0.276 | 0.395 | 0.351 | |
-| above @ Cyclist | - | - | - | 0.2239 | 0.3372 | 0.3159 | |
-| [ResNet101+DCN (slow infer)<sup>2</sup>](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 0.379 | 0.5215 | 0.4884| |
-| above @ Car | - | - | - | 0.5624 | 0.7315 | 0.7207 | |
-| above @ Pedestrian | - | - | - | 0.346 | 0.4901 | 0.4225 | |
-| above @ Cyclist | - | - | - | 0.2284 | 0.3429 | 0.3218 | |
+| [ResNet101+DCN](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 33.8 | 46.65 | 44.25| [log](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync/20220807_153735.log.json) |
+| above @ Car | - | - | - | 52.69 | 68.36 | 67.47 | |
+| above @ Pedestrian | - | - | - | 26.82 | 38.47 | 34.1 | |
+| above @ Cyclist | - | - | - | 21.9 | 33.11 | 31.16 | |
+| [ResNet101+DCN<br>+10 sweeps](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps.py) | - | - | - | 35.14| 47.98 | 45.49 | [log1](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220808_170010.log.json) \| [log2](https://download.openmmlab.com/mim-example/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync_10sweeps/20220809_093358.log.json) |
+| above @ Car | - | - | - | 55.44 | 70.72 | 69.79 | |
+| above @ Pedestrian | - | - | - | 27.6 | 39.5 | 35.1 | |
+| above @ Cyclist | - | - | - | 22.39 | 33.72 | 31.59 | |
+| [ResNet101+DCN<br>(slow infer)<sup>2</sup>](./configs/dfm/multiview-dfm_r101_dcn_2x16_waymoD5-3d-3class_camsync.py) | - | - | - | 37.9 | 52.15 | 48.84| |
+| above @ Car | - | - | - | 56.24 | 73.15 | 72.07 | |
+| above @ Pedestrian | - | - | - | 34.6 | 49.01 | 42.25 | |
+| above @ Cyclist | - | - | - | 22.84 | 34.29 | 32.18 | |
 
 [2] "slow infer" refers to changing the nms setting to `nms_pre=4096` and `max_num=500` to increase the number of predictions such that the inference can get a better recall performance. It will slow down the inference procedure but significantly improves the final performance under the Waymo metric. **The same trick can also be applied to the 10-sweep config and other models.**
 
@@ -117,7 +117,7 @@ This project is released under the [Apache 2.0 license](LICENSE).
 
 First prepare the raw data of KITTI and Waymo data following [MMDetection3D](https://github.com/open-mmlab/mmdetection3d).
 
-Then we prepare the data related to temporally consecutive frames. **(still unstable and details under modifying & testing)**
+Then we prepare the data related to temporally consecutive frames.
 
 For KITTI, we need to additionally download the pose and label files of the raw data [here](https://www.cse.msu.edu/computervision/Kinematic3D-raw_extra.zip) and the official mapping (between the raw data and the 3D detection benchmark split) [here](https://github.com/garrickbrazil/kinematic3d/tree/master/data/kitti_split1/devkit/mapping). Then we can run the data converter script:
 
