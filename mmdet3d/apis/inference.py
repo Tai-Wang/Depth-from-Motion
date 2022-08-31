@@ -247,11 +247,20 @@ def inference_mono_3d_detector(model, image, ann_file):
     # get data info containing calib
     data_infos = mmcv.load(ann_file)
     # find the info corresponding to this image
-    for x in data_infos['images']:
-        if osp.basename(x['file_name']) != osp.basename(image):
-            continue
-        img_info = x
-        break
+    if 'images' in data_infos:
+        for x in data_infos['images']:
+            if osp.basename(x['file_name']) != osp.basename(image):
+                continue
+            img_info = x
+            break
+    else:
+        image_idx = int(re.findall(r'\d+',
+                                   image)[-1])  # xxx/sunrgbd_000017.jpg
+        for x in data_infos:
+            if int(x['image']['image_idx']) != image_idx:
+                continue
+            info = x
+            break
     data = dict(
         img_prefix=osp.dirname(image),
         img_info=dict(filename=osp.basename(image)),
@@ -268,6 +277,30 @@ def inference_mono_3d_detector(model, image, ann_file):
     # camera points to image conversion
     if box_mode_3d == Box3DMode.CAM:
         data['img_info'].update(dict(cam_intrinsic=img_info['cam_intrinsic']))
+
+    # for dfm demo
+    if 'images' not in data_infos:
+        rect = info['calib']['R0_rect'].astype(np.float32)
+        Trv2c = info['calib']['Tr_velo_to_cam'].astype(np.float32)
+        P2 = info['calib']['P2'].astype(np.float32)
+        cam2img = P2
+        lidar2img = P2 @ rect @ Trv2c
+        lidar2cam = rect @ Trv2c
+        if 'cam2global' in info['image']:
+            data['img_info']['cam2global'] = info['image']['cam2global']
+        if 'sweeps' in info['image']:
+            sweeps_info = info['image']['sweeps']
+            sweeps = []  # avoid modify the original sweeps_info
+            for sweep_info in sweeps_info:
+                sweep = {}
+                for key in sweep_info:
+                    sweep[key] = sweep_info[key]
+                sweep['data_path'] = osp.basename(sweep_info['data_path'])
+                sweeps.append(sweep)
+            data['img_info']['sweeps'] = sweeps
+        data['cam2img'] = cam2img
+        data['lidar2img'] = lidar2img
+        data['lidar2cam'] = lidar2cam
 
     data = test_pipeline(data)
 
@@ -409,7 +442,11 @@ def show_proj_det_result_meshlab(data,
     """Show result of projecting 3D bbox to 2D image by meshlab."""
     assert 'img' in data.keys(), 'image data is not provided for visualization'
 
-    img_filename = data['img_metas'][0][0]['filename']
+    if isinstance(data['img_metas'][0], dict):
+        img_meta = data['img_metas'][0]
+    else:
+        img_meta = data['img_metas'][0][0]
+    img_filename = img_meta['filename']
     file_name = osp.split(img_filename)[-1].split('.')[0]
 
     # read from file because img in data_dict has undergone pipeline transform
@@ -427,9 +464,9 @@ def show_proj_det_result_meshlab(data,
         inds = pred_scores > score_thr
         pred_bboxes = pred_bboxes[inds]
 
-    box_mode = data['img_metas'][0][0]['box_mode_3d']
+    box_mode = img_meta['box_mode_3d']
     if box_mode == Box3DMode.LIDAR:
-        if 'lidar2img' not in data['img_metas'][0][0]:
+        if 'lidar2img' not in img_meta:
             raise NotImplementedError(
                 'LiDAR to image transformation matrix is not provided')
 
@@ -439,7 +476,7 @@ def show_proj_det_result_meshlab(data,
             img,
             None,
             show_bboxes,
-            data['img_metas'][0][0]['lidar2img'],
+            img_meta['lidar2img'],
             out_dir,
             file_name,
             box_mode='lidar',
@@ -455,10 +492,10 @@ def show_proj_det_result_meshlab(data,
             out_dir,
             file_name,
             box_mode='depth',
-            img_metas=data['img_metas'][0][0],
+            img_metas=img_meta,
             show=show)
     elif box_mode == Box3DMode.CAM:
-        if 'cam2img' not in data['img_metas'][0][0]:
+        if 'cam2img' not in img_meta:
             raise NotImplementedError(
                 'camera intrinsic matrix is not provided')
 
@@ -469,7 +506,7 @@ def show_proj_det_result_meshlab(data,
             img,
             None,
             show_bboxes,
-            data['img_metas'][0][0]['cam2img'],
+            img_meta['cam2img'],
             out_dir,
             file_name,
             box_mode='camera',

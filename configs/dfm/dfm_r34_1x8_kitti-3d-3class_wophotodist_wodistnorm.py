@@ -351,7 +351,8 @@ data = dict(
         classes=class_names,
         test_mode=False,
         pseudo_lidar=True,
-        use_similar_cls=True),
+        use_similar_cls=True,
+        box_type_3d='LiDAR'),
     val=dict(
         type=dataset_type,
         data_root=data_root,
@@ -362,7 +363,8 @@ data = dict(
         modality=input_modality,
         classes=class_names,
         test_mode=True,
-        pseudo_lidar=True),
+        pseudo_lidar=True,
+        box_type_3d='LiDAR'),
     test=dict(
         type=dataset_type,
         data_root=data_root,
@@ -373,7 +375,8 @@ data = dict(
         modality=input_modality,
         classes=class_names,
         test_mode=True,
-        pseudo_lidar=True))
+        pseudo_lidar=True,
+        box_type_3d='LiDAR'))
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))

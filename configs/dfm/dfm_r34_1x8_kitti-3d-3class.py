@@ -242,18 +242,10 @@ class_names = ['Car', 'Pedestrian', 'Cyclist']
 input_modality = dict(use_lidar=False, use_camera=True)
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=False)
-# file_client_args = dict(backend='disk')
+file_client_args = dict(backend='disk')
 # Uncomment the following if use ceph or other file clients.
 # See https://mmcv.readthedocs.io/en/latest/api.html#mmcv.fileio.FileClient
 # for more details.
-file_client_args = dict(
-    backend='petrel',
-    path_mapping=dict({
-        '.data/kitti/':
-        's3://openmmlab/datasets/detection3d/kitti/',
-        'data/kitti/':
-        's3://openmmlab/datasets/detection3d/kitti/'
-    }))
 # Explore RandomFlip3D Aug
 train_pipeline = [
     dict(type='TruncatedObjectFilter', truncated_threshold=0.98),
@@ -351,7 +343,8 @@ data = dict(
         classes=class_names,
         test_mode=False,
         pseudo_lidar=True,
-        use_similar_cls=True),
+        use_similar_cls=True,
+        box_type_3d='LiDAR'),
     val=dict(
         type=dataset_type,
         data_root=data_root,
@@ -362,7 +355,8 @@ data = dict(
         modality=input_modality,
         classes=class_names,
         test_mode=True,
-        pseudo_lidar=True),
+        pseudo_lidar=True,
+        box_type_3d='LiDAR'),
     test=dict(
         type=dataset_type,
         data_root=data_root,
@@ -373,7 +367,8 @@ data = dict(
         modality=input_modality,
         classes=class_names,
         test_mode=True,
-        pseudo_lidar=True))
+        pseudo_lidar=True,
+        box_type_3d='LiDAR'))
 
 optimizer = dict(type='AdamW', lr=0.001, weight_decay=0.0001)
 optimizer_config = dict(grad_clip=dict(max_norm=35., norm_type=2))
