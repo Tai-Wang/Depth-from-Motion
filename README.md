@@ -199,6 +199,22 @@ mmdetection3d
 
 For the KITTI implementation of DfM, we keep the LIGA-Stereo setting that has a LiDAR-based teacher for better supervision during training. Please download the teacher checkpoint (has been converted to mmdet3d-style) [here](https://download.openmmlab.com/mim-example/dfm/pretrained_models/mmdet3d-second-teacher.pth). It can make this network converge faster and bring ~1 AP performance gain. We will consider to replace it with other more direct supervision for simpler usage in the near future.
 
+### Demo
+
+To test DfM on image data, simply run:
+
+```shell
+python demo/mono_det_demo.py ${IMAGE_FILE} ${ANNOTATION_FILE} ${CONFIG_FILE} ${CHECKPOINT_FILE} [--device ${GPU_ID}] [--out-dir ${OUT_DIR}] [--show]
+```
+
+where the `ANNOTATION_FILE` should provide the 3D to 2D projection matrix (camera intrinsic matrix). The visualization results including an image and its predicted 3D bounding boxes projected on the image will be saved in `${OUT_DIR}/IMAGE_NAME`.
+
+Example on KITTI data using [DfM](https://github.com/Tai-Wang/Depth-from-Motion/blob/main/configs/dfm) model:
+
+```shell
+python demo/mono_det_demo.py demo/data/kitti/000008.png demo/data/kitti/kitti_000008_infos.pkl configs/dfm/dfm_r34_1x8_kitti-3d-3class.py checkpoints/dfm.pth
+```
+
 ### Training and testing
 
 For training and testing, you can follow the standard command in mmdet to train and test the model
