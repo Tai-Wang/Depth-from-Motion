@@ -38,10 +38,10 @@ The complete model checkpoints and logs will be released soon.
 
 |  Backbone | Lr schd | Mem (GB) | Inf time (fps) |  Easy  | Moderate | Hard | Download|
 | :-------: | :-----: | :------: | :------------: | :----: | :------: | :--: | :-----: |
-| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 28.8421 | 19.5941 | 17.3993<sup>1</sup> | [model](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/epoch_59.pth) \| [log](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/20220824_215725.log.json) |
-| above @ BEV AP<br>(IoU 0.7) | - | - | - | 40.5335 | 27.7522 | 24.5844 | |
-| above @ 3D AP<br>(IoU 0.5) | - | - | - | 70.1911 | 50.9922 | 47.4113 | |
-| above @ BEV AP<br>(IoU 0.5) | - | - | - | 74.2643 | 55.8107 | 52.2759 | |
+| [ResNet34](./configs/dfm/dfm_r34_1x8_kitti-3d-3class.py) | - | - | - | 29.1232 | 19.8970 | 17.3910<sup>1</sup> | [model](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/epoch_53.pth) \| [log](https://download.openmmlab.com/mim-example/dfm/dfm_r34_1x8_kitti-3d-3class/20220909_092821.log.json) |
+| above @ BEV AP<br>(IoU 0.7) | - | - | - | 38.9137 | 27.2843 | 24.8381 | |
+| above @ 3D AP<br>(IoU 0.5) | - | - | - | 67.4935 | 51.2602 | 47.4430 | |
+| above @ BEV AP<br>(IoU 0.5) | - | - | - | 72.5696 | 55.4583 | 52.4735 | |
 
 [1] This reproduced performance may have some degree of fluctuation due to the limited training samples and sensitive metrics. From my experience of multiple runs, the average performance may vary from 26/18/16 to 29/20/17, depending on the effect of corner cases (caused by matrix inverse computation or other reasons). Please stay tuned for a more stable version. (Models and logs will be updated soon.)
 
