@@ -258,12 +258,12 @@ def build_dfm_cost(cur_feats,
         # recover the canonical space: crop back -> scale back -> flip back
         grid[..., :2] += img_crop_offset
         grid[..., :2] /= img_scale_factor
+        if flip:
+            org_h, org_w = img_shape  # should be the original image shape
+            grid[..., 0] = org_w - grid[..., 0]
         # grid3d: (D*H_out*W_out, 3)
         grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx][:3])
         # grid3d = points_img2cam(grid[idx].view(-1, 3), cam2imgs[idx])
-        # only support flip transformation for now
-        if flip:  # get the original 3D grid by transforming it back
-            grid3d[:, 0] = -grid3d[:, 0]
         pad_ones = grid3d.new_ones(grid3d.shape[0], 1)
         homo_grid3d = torch.cat([grid3d, pad_ones], dim=1)
         cur_grid = points_cam2img(grid3d, cam2imgs[idx])[:, :2]

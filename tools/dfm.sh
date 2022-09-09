@@ -3,10 +3,10 @@
 set -x
 
 CKPT_PATH=/mnt/lustre/wangtai/mmdet3d-prerelease/work_dirs
-PARTITION=robot
-JOB_NAME=bin96
-TASK=bin96
-CONFIG=configs/dfm/dfm_r34_1x8_kitti-3d-3class_bin96.py
+PARTITION=mm_det
+JOB_NAME=ori-dfm-fix-flipcost
+TASK=ori-dfm-fix-flipcost
+CONFIG=configs/dfm/dfm_r34_1x8_kitti-3d-3class.py
 WORK_DIR=${CKPT_PATH}/${TASK}
 CKPT=${CKPT_PATH}/${TASK}/latest.pth
 GPUS=8
