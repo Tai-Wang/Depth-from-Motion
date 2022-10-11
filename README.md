@@ -231,6 +231,12 @@ For simple inference and evaluation, you can use the command below:
 ./tools/slurm_test.sh ${PARTITION} ${JOB_NAME} ${CONFIG_FILE} ${CKPT_PATH} --eval mAP
 ```
 
+### FAQ
+
+- How to use the Waymo LET-AP metric to evaluate the performance of MV-FCOS3D++?
+
+You can follow the [instruction](https://github.com/waymo-research/waymo-open-dataset/blob/master/docs/quick_start.md#metrics-computation) of compiling the original Waymo detection metrics to compile this [file](https://github.com/waymo-research/waymo-open-dataset/blob/master/waymo_open_dataset/metrics/tools/compute_detection_let_metrics_main.cc) and get the `compute_detection_let_metrics_main` file for LET-AP metric evaluation. Besides, you can refer to the [official tutorial](https://github.com/waymo-research/waymo-open-dataset/blob/master/tutorial/tutorial_camera_only.ipynb) of camera-only 3D detection for more details about its python example code.
+
 ## Acknowledgement
 
 This codebase is based on [MMDet3D](https://github.com/open-mmlab/mmdetection3d) and it benefits a lot from [LIGA-Stereo](https://github.com/xy-guo/LIGA-Stereo).
